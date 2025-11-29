@@ -9,6 +9,8 @@ export type Video = {
   id: number
   title: string
   created_at: string
+  status: "pending" | "processing" | "completed" | "failed"
+  progress?: number
   clips: VideoClip[]
 }
 

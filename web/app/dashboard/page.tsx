@@ -57,8 +57,8 @@ export default function DashboardPage() {
 
     setIsSubmitting(true)
     try {
-      const video = await createVideo(files[0])
-      router.push(`/dashboard/clips/${video.id}`)
+      await createVideo(files[0])
+      router.push(`/dashboard/projects`)
     } finally {
       setIsSubmitting(false)
     }

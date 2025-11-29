@@ -21,7 +21,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 function requestSSE(path: string): EventSource {
   const url = `${BACKEND_BASE_URL}${path}`;
-  return new EventSource(url);
+  return new EventSource(url, { withCredentials: true });
 }
 
 export { BACKEND_BASE_URL, request, requestSSE };
