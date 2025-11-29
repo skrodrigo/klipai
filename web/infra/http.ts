@@ -8,7 +8,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     headers: {
       ...(options.headers ?? {}),
-      "Content-Type": "application/json",
+      ...(!(options.body instanceof FormData) && { "Content-Type": "application/json" }),
     },
   });
 
@@ -19,4 +19,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-export { BACKEND_BASE_URL, request };
+function requestSSE(path: string): EventSource {
+  const url = `${BACKEND_BASE_URL}${path}`;
+  return new EventSource(url);
+}
+
+export { BACKEND_BASE_URL, request, requestSSE };

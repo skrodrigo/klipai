@@ -1,3 +1,3 @@
-from .tasks import process_clip_task
+from .process_video_task import process_video_task
 
-__all__ = ("process_clip_task",)
+__all__ = ("process_video_task",)

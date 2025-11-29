@@ -1,16 +1,21 @@
 "use client"
 
 import { useRef, useState } from "react"
+import { useRouter } from "next/navigation"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Paperclip, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IconVideo } from "@tabler/icons-react"
+import { createVideo } from "@/infra/videos/videos"
 
 export default function DashboardPage() {
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const router = useRouter()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? [])
@@ -43,6 +48,20 @@ export default function DashboardPage() {
 
   const removeFile = (idx: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const handleContinue = async () => {
+    if (!files.length || isSubmitting) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const video = await createVideo(files[0])
+      router.push(`/dashboard/clips/${video.id}`)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -121,8 +140,12 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <Button className="rounded-full  h-12 font-semibold">
-            Continue
+          <Button
+            className="rounded-full  h-12 font-semibold"
+            disabled={!files.length || isSubmitting}
+            onClick={handleContinue}
+          >
+            {isSubmitting ? "Generating clips..." : "Continue"}
           </Button>
         </div>
       </div>
