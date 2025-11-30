@@ -1,118 +1,94 @@
-# Setup Produção - Kastraclip
+Setup Produção — Kastraclip
 
-## Estrutura
-
-```bash
+Estrutura
 c:\Users\r\codes\
 ├── kastraclip/
-│   ├── backend/          # PIP (venv)
-│   ├── web/              # Frontend (pnpm)
+│   ├── backend/          # Django (venv)
+│   ├── web/              # Next.js (pnpm)
 │   └── docker-compose.yml
-└── FunClip/              # PIP (venv do backend)
-```
 
-## 1. Iniciar Docker (PostgreSQL + RabbitMQ)
-
-```bash
+1. Subir Docker (PostgreSQL + RabbitMQ)
 cd kastraclip
-docker-compose up -d
-```
+docker compose up -d
+docker compose ps
 
-Verifica se está rodando:
-```bash
-docker-compose ps
-```
-
-## 2. Instalar Backend (PIP + venv)
-
-```bash
+2. Backend (venv)
 cd kastraclip/backend
 python -m venv venv
-source venv/bin/activate 
-```
+source venv/bin/activate
+pip install -r requirements.txt
 
-## 3. Instalar FunClip (PIP - Mesma Venv)
+3. Instalar Dependências
 
-```bash
-cd c:\Users\r\codes\FunClip
-pip install -r ./requirements.txt
-```
+Ubuntu/WSL:
 
-## 4. Instalar Dependências do Sistema
+sudo apt-get update -y
+sudo apt-get install -y ffmpeg imagemagick
+sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
-```bash
+4. Instalar Whisper
 
-# Ubuntu/Debian
-apt-get -y update && apt-get -y install ffmpeg imagemagick
+pip install openai-whisper
 
-```
 
-## 5. Gerar Migrations
+Ou Whisper C++ (mais rápido):
 
-```bash
+pip install whispercpp
+
+5. Migrations
 cd kastraclip/backend
-source venv/bin/activate  
-python manage.py makemigrations clips
+source venv/bin/activate
+python manage.py makemigrations
 python manage.py migrate
-```
 
-## 6. Configurar Variáveis de Ambiente
+6. Configurar .env
 
-Atualizar `backend/.env`:
+backend/.env:
 
-```env
-# Database (Docker)
 DATABASE_URL=postgres://kastra:kastra@localhost:5432/kastraclip
 
-# Celery + RabbitMQ (Docker)
 CELERY_BROKER_URL=amqp://guest:guest@localhost:5672//
 CELERY_RESULT_BACKEND=rpc://
 
-# FunClip
-FUNCLIP_ENABLED=true
 FFMPEG_PATH=ffmpeg
 FFMPEG_TIMEOUT=600
-```
 
-## 7. Iniciar Serviços
+WHISPER_MODEL=medium
+DJANGO_SECRET_KEY=gerar_aqui
+DEBUG=false
 
-```bash
-# Terminal 1: Docker (já rodando)
-docker compose up -d
 
-# Terminal 2: Backend Django
+Gerar SECRET_KEY:
+
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+7. Iniciar Serviços
+Backend
 cd kastraclip/backend
-source venv/bin/activate  
-python manage.py runserver 
+source venv/bin/activate
+python manage.py runserver
 
-# Terminal 3: Celery Worker
+Celery Worker
 cd kastraclip/backend
-source venv/bin/activate 
+source venv/bin/activate
 celery -A core worker -l info
 
-# Terminal 4: Frontend
+Frontend
 cd kastraclip/web
+pnpm install
 pnpm dev
-```
 
+Fluxo Final (sem FunClip)
 
-## Logs
+1. Upload do vídeo → Django
+2. Celery worker:
 
-Verificar logs do Celery:
+Extrai áudio com FFmpeg
 
-```bash
-# Terminal 3 mostra logs em tempo real
-celery -A core worker -l info
+Roda Whisper para gerar .srt
 
-# Ou arquivo de log
-tail -f celery.log
-```
+Lê timestamps
 
-
-## Próximas Etapas
-
-- [ ] Integrar S3 para armazenamento
-- [ ] Implementar autenticação/autorização
-- [ ] Adicionar suporte a múltiplos idiomas
-- [ ] Implementar agendamento de clips
-- [ ] Integrar com redes sociais (TikTok, Instagram, YouTube)
+Corta os vídeos com FFmpeg
+3. Salva tudo no banco
+4. Front recebe progresso via SSE/WebSockets
