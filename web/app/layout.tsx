@@ -30,14 +30,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${dmSans.variable} ${instrumentSerif.variable} antialiased`} suppressHydrationWarning>
+      <body className={`${dmSans.variable} ${instrumentSerif.variable} antialiased bg-[#F9FAFB] dark:bg-[#101010]`} suppressHydrationWarning>
         <QueryClientProviderWrapper>
           <UpgradeDialogProvider>
-
             <AuthProvider>
               <ThemeProvider
                 attribute="class"
-                defaultTheme="dark"
+                defaultTheme="light"
                 enableSystem
                 disableTransitionOnChange>
                 {children}
@@ -45,7 +44,6 @@ export default function RootLayout({
             </AuthProvider>
           </UpgradeDialogProvider>
           <Toaster />
-
         </QueryClientProviderWrapper>
       </body>
     </html >

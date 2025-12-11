@@ -55,7 +55,7 @@ export default function ProjectsPage() {
           filteredVideos.map((video) => (
             <article
               key={video.id}
-              className="group relative rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+              className="group relative rounded-2xl border bg-card overflow-hidden"
             >
               <div className="relative h-40 overflow-hidden">
                 <div className="absolute inset-0 bg-black/20" />

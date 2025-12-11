@@ -78,8 +78,6 @@ cd klipou/web
 pnpm install
 pnpm dev
 
-Fluxo Final (sem FunClip)
-
 1. Upload do vídeo → Django
 2. Celery worker:
 

@@ -73,7 +73,7 @@ export default function UpgradePage() {
           {plans.map((plan) => (
             <div
               key={plan.name}
-              className={`rounded-3xl border p-6 shadow-sm ${plan.highlight ? "border-primary shadow-lg" : "border-border"
+              className={`rounded-3xl border p-6 ${plan.highlight ? "border-primary" : "border-border"
                 }`}
             >
               <div className="space-y-2">
