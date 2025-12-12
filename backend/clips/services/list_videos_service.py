@@ -14,7 +14,8 @@ def list_videos() -> List[Dict[str, Any]]:
     
     videos = []
     for video in Video.objects.order_by("-created_at"):
-        progress = cache.get(f"video_progress_{video.id}", 0) if video.status == "processing" else 0
+        status_data = cache.get(f"video_status_{video.id}")
+        progress = status_data.get("progress", 0) if status_data else 0
         videos.append({
             "id": video.id,
             "title": video.title,

@@ -4,14 +4,17 @@ import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Check, Circle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { IconCheck, IconLoader2 } from "@tabler/icons-react"
+import { IconCheck, IconLoader2, IconLogout2 } from "@tabler/icons-react"
+import { requestSSE } from "@/infra/http"
+import { useVideoStore } from "@/lib/store/video-store"
 
-type ProcessingStatus = "queue" | "sending" | "creating" | "hunting" | "completed"
+type ProcessingStatus = "queue" | "sending" | "creating" | "hunting" | "completed" | "failed"
 
 interface StatusMessage {
   status: ProcessingStatus
   progress: number
   queue_position?: number
+  error?: string
 }
 
 export default function ProcessingPage() {
@@ -20,64 +23,62 @@ export default function ProcessingPage() {
   const [status, setStatus] = useState<ProcessingStatus>("queue")
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [videoId, setVideoId] = useState<string | null>(null)
-  const [videoTitle, setVideoTitle] = useState("Seu vídeo")
+  const { videoFile, videoUrl } = useVideoStore()
+  const videoTitle = videoFile?.name || "Seu vídeo"
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Get videoId from URL params or session
-    const params = new URLSearchParams(window.location.search)
-    const id = params.get("videoId")
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("videoId");
     if (id) {
-      setVideoId(id)
+      setVideoId(id);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!videoId) {
+      return;
     }
 
-    // Get video title from sessionStorage
-    const settings = sessionStorage.getItem("videoSettings")
-    if (settings) {
-      try {
-        const parsed = JSON.parse(settings)
-        if (parsed.videoFile?.name) {
-          setVideoTitle(parsed.videoFile.name)
-        }
-      } catch (e) {
-        console.error("Error parsing video settings:", e)
-      }
-    }
-
-    // Connect to SSE
-    const eventSource = new EventSource(`/api/videos/${id}/progress`)
+    let isClosing = false;
+    const eventSource = requestSSE(`/api/videos/${videoId}/progress/`);
 
     eventSource.onmessage = (event) => {
       try {
-        const data: StatusMessage = JSON.parse(event.data)
-        setStatus(data.status)
-        setProgress(data.progress)
+        const data: StatusMessage = JSON.parse(event.data);
+        setStatus(data.status);
+        setProgress(data.progress);
         if (data.queue_position !== undefined) {
-          setQueuePosition(data.queue_position)
+          setQueuePosition(data.queue_position);
         }
 
-        // Redirect when completed
         if (data.status === "completed") {
+          isClosing = true;
           setTimeout(() => {
-            eventSource.close()
-            router.push("/dashboard/projects")
-          }, 2000)
+            eventSource.close();
+            router.push("/dashboard/projects");
+          }, 2000);
+        } else if (data.status === "failed") {
+          isClosing = true;
+          setError(data.error || "O processamento falhou. Por favor, tente novamente.");
+          eventSource.close();
         }
       } catch (e) {
-        console.error("Error parsing SSE message:", e)
+        console.error("Error parsing SSE message:", e);
       }
-    }
+    };
 
     eventSource.onerror = () => {
-      console.error("SSE connection error")
-      setError("Ocorreu um erro ao conectar com o servidor. Por favor, tente novamente.")
-      eventSource.close()
-    }
+      if (!isClosing) {
+        setError("Ocorreu um erro ao conectar com o servidor. Por favor, tente novamente.");
+      }
+      eventSource.close();
+    };
 
     return () => {
-      eventSource.close()
-    }
-  }, [router])
+      eventSource.close();
+    };
+  }, [videoId, router]);
 
   const getStatusLabel = () => {
     if (status === "queue" && queuePosition) {
@@ -92,6 +93,8 @@ export default function ProcessingPage() {
         return "Caçando as melhores partes"
       case "completed":
         return "Concluído"
+      case "failed":
+        return "Falhou"
       default:
         return "Next in queue"
     }
@@ -120,7 +123,9 @@ export default function ProcessingPage() {
             </div>
           )}
           <div className="bg-card border border-border rounded-md p-4 flex gap-4">
-            <div className="w-16 h-16 bg-black rounded-md overflow-hidden flex-shrink-0"></div>
+            <div className="w-16 h-16 bg-black rounded-md overflow-hidden flex-shrink-0">
+              {videoUrl && <video src={videoUrl} className="w-full h-full object-cover" />}
+            </div>
             <div className="flex-1">
               <h3 className="text-sm font-medium text-foreground mb-3 line-clamp-2">
                 {videoTitle.toUpperCase()}
@@ -204,15 +209,13 @@ export default function ProcessingPage() {
             </div>
           </div>
 
-          {/* Go to Projects Button */}
-          {status === "completed" && (
-            <Button
-              onClick={() => router.push("/dashboard/projects")}
-              className="w-full bg-foreground text-background font-medium h-12 rounded-md hover:bg-foreground/90 transition-colors"
-            >
-              Ir para Projetos
-            </Button>
-          )}
+          <Button
+            onClick={() => router.push("/dashboard/projects")}
+            className=" bg-foreground text-background rounded-md hover:bg-foreground/90 transition-colors"
+          >
+            <IconLogout2 />
+            Ir para Projetos
+          </Button>
         </div>
       </div>
     </div>

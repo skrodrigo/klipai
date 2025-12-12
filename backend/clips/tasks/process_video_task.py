@@ -4,11 +4,12 @@ import subprocess
 from celery import shared_task
 from django.core.cache import cache
 from django.conf import settings
+import requests
 
 from ..models import Video, VideoClip
 
 
-@shared_task(bind=True, max_retries=2)
+@shared_task(bind=True)
 def process_video_task(self, video_id: int) -> dict:
     """Processa vídeo com Whisper + FFmpeg locais"""
     import time
@@ -19,39 +20,35 @@ def process_video_task(self, video_id: int) -> dict:
         video.task_id = self.request.id
         video.save()
 
+        api_url = f"http://localhost:8000/api/videos/{video_id}/status/"
+
         video_path = video.file.path
         output_dir = os.path.join(settings.MEDIA_ROOT, f"clips/{video_id}")
         os.makedirs(output_dir, exist_ok=True)
 
-        # Stage 1: Whisper - Reconhecimento (Enviando)
-        cache.set(f"video_status_{video_id}", {
+        requests.post(api_url, json={
             "status": "sending",
             "progress": 20,
-            "queue_position": None
-        }, timeout=3600)
-        time.sleep(2)  # Simula tempo de processamento
+        })
+        time.sleep(2)  
         
         srt_file = _generate_srt_with_whisper(video_path, output_dir)
         raw_segments = _parse_srt_file(srt_file)
         candidate_clips = _build_clip_candidates(raw_segments)
 
-        # Stage 2: Criando projeto (Creating)
-        cache.set(f"video_status_{video_id}", {
+        requests.post(api_url, json={
             "status": "creating",
             "progress": 50,
-            "queue_position": None
-        }, timeout=3600)
-        time.sleep(2)  # Simula tempo de processamento
+        })
+        time.sleep(2) 
         
         clips_data = _generate_clips_with_ffmpeg(video_path, output_dir, candidate_clips)
 
-        # Stage 3: Caçando as melhores partes (Hunting)
-        cache.set(f"video_status_{video_id}", {
+        requests.post(api_url, json={
             "status": "hunting",
             "progress": 75,
-            "queue_position": None
-        }, timeout=3600)
-        time.sleep(2)  # Simula tempo de processamento
+        })
+        time.sleep(2)  
         
         for clip_info in clips_data:
             VideoClip.objects.create(
@@ -61,14 +58,12 @@ def process_video_task(self, video_id: int) -> dict:
                 end_time=clip_info["end_time"],
             )
 
-        # Concluído
         video.status = "completed"
         video.save()
-        cache.set(f"video_status_{video_id}", {
+        requests.post(api_url, json={
             "status": "completed",
             "progress": 100,
-            "queue_position": None
-        }, timeout=3600)
+        })
 
         return {"video_id": video_id, "status": "completed"}
 
@@ -79,9 +74,16 @@ def process_video_task(self, video_id: int) -> dict:
             video = Video.objects.get(id=video_id)
             video.status = "failed"
             video.save()
-        except:
+        except Video.DoesNotExist:
             pass
-        raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
+
+        requests.post(api_url, json={
+            "status": "failed",
+            "progress": 0,
+            "error": str(e)
+        })
+
+        return {"error": str(e), "status": "failed"}
 
 
 def _generate_srt_with_whisper(video_path: str, output_dir: str) -> str:

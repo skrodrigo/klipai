@@ -1,6 +1,8 @@
 from typing import Any, Dict
 
 from ..models import Video
+import requests
+
 from ..tasks.process_video_task import process_video_task
 
 
@@ -16,7 +18,15 @@ def create_video_with_clips(title: str, file) -> Dict[str, Any]:
         Dict com dados do vídeo e task_id
     """
     video = Video.objects.create(title=title, file=file, status="pending")
-    
+
+    # Envia o estado inicial via webhook para notificar o SSE
+    api_url = f"http://localhost:8000/api/videos/{video.id}/status/"
+    requests.post(api_url, json={
+        "status": "queue",
+        "progress": 0,
+        "queue_position": 1
+    })
+
     # Dispara task Celery
     task = process_video_task.delay(video.id)
     video.task_id = task.id
