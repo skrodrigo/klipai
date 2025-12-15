@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation"
 
 import { useVideoStore } from "@/lib/store/video-store"
 import { Input } from "@/components/ui/input"
-import { Paperclip, X } from "lucide-react"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Attachment01Icon, Cancel01FreeIcons } from "@hugeicons/core-free-icons"
 
 export default function DashboardPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -88,7 +89,7 @@ export default function DashboardPage() {
                       onClick={() => removeFile(idx)}
                       className="bg-accent text-white rounded-md p-2 hover:bg-muted/90"
                     >
-                      <X className="h-4 w-4" />
+                      <HugeiconsIcon icon={Cancel01FreeIcons} />
                     </button>
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
@@ -106,14 +107,14 @@ export default function DashboardPage() {
 
           <div
             className={cn(
-              "relative rounded-md transition-all flex-1",
+              "relative rounded-md transition-all flex-1  bg-card",
               isDragging ? "" : "border-border"
             )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="flex gap-3 items-center h-12">
+            <div className="flex gap-3 items-center">
               <input
                 hidden
                 onChange={handleFileChange}
@@ -124,13 +125,13 @@ export default function DashboardPage() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="text-muted-foreground border rounded-full p-3 border-border hover:text-foreground transition-colors"
+                className="text-muted-foreground p-3 border-border hover:text-foreground transition-colors"
               >
-                <Paperclip className="h-5 w-5" />
+                <HugeiconsIcon icon={Attachment01Icon} size={16} />
               </button>
               <Input
                 placeholder="Paste link or drag your video here"
-                className="flex-1 focus-visible:ring-0 h-12 focus-visible:ring-offset-0 placeholder:text-muted-foreground"
+                className="flex-1 focus-visible:ring-0 h-12 focus-visible:ring-offset-0 placeholder:text-muted-foreground !bg-transparent"
               />
             </div>
           </div>

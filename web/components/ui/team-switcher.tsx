@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronsUpDown, Plus } from "lucide-react"
-import { IconBrandAppgallery, IconWaveSine, IconCommand } from "@tabler/icons-react"
+import { HugeiconsIcon } from "@hugeicons/react"
 
 import {
   DropdownMenu,
@@ -20,21 +19,22 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { ArrowDown01Icon, AudioWave01Icon, CommandIcon, GooglePhotosIcon, PlusSignIcon } from "@hugeicons/core-free-icons"
 
 const teams = [
   {
     name: "Acme Inc",
-    logo: IconBrandAppgallery,
+    logo: GooglePhotosIcon,
     plan: "Enterprise",
   },
   {
     name: "Acme Corp.",
-    logo: IconWaveSine,
+    logo: AudioWave01Icon,
     plan: "Startup",
   },
   {
     name: "Evil Corp.",
-    logo: IconCommand,
+    logo: CommandIcon,
     plan: "Free",
   },
 ]
@@ -51,19 +51,19 @@ export function TeamSwitcher() {
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
-          <DropdownMenuTrigger className='w-full'>
+          <DropdownMenuTrigger asChild className='w-full'>
             <SidebarMenuButton
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="bg-muted   border border-border text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-md">
-                <activeTeam.logo className="size-4" />
+                <HugeiconsIcon icon={activeTeam.logo} className="size-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{activeTeam.name}</span>
                 <span className="truncate text-xs">{activeTeam.plan}</span>
               </div>
-              <ChevronsUpDown className="ml-auto" />
+              <HugeiconsIcon icon={ArrowDown01Icon} className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -83,7 +83,7 @@ export function TeamSwitcher() {
                   className="gap-2 p-2"
                 >
                   <div className="flex size-6 items-center justify-center rounded-md border">
-                    <team.logo className="size-3.5 shrink-0" />
+                    <HugeiconsIcon icon={team.logo} className="size-3.5 shrink-0" />
                   </div>
                   {team.name}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
@@ -93,7 +93,7 @@ export function TeamSwitcher() {
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2 p-2">
               <div className="flex size-6 items-center justify-center rounded-md border bg-transparent">
-                <Plus className="size-4" />
+                <HugeiconsIcon icon={PlusSignIcon} className="size-4" />
               </div>
               <div className="text-muted-foreground font-medium">Add team</div>
             </DropdownMenuItem>

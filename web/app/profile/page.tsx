@@ -1,12 +1,12 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { IconArrowLeft } from "@tabler/icons-react"
-
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowLeft02Icon } from "@hugeicons/core-free-icons"
 
 
 export default function ProfilePage() {
@@ -14,12 +14,14 @@ export default function ProfilePage() {
 
   return (
     <div className="w-full flex flex-col p-6">
-      <button
+      <Button
+        variant='ghost'
         className="flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground mb-8 w-fit"
         onClick={() => router.back()}
       >
-        <IconArrowLeft className="size-4" /> Voltar
-      </button>
+        <HugeiconsIcon icon={ArrowLeft02Icon} strokeWidth={2} />
+        Voltar
+      </Button>
 
       <div className="flex-1 flex flex-col">
         <div className="mx-auto flex max-w-5xl flex-col gap-8 w-full">

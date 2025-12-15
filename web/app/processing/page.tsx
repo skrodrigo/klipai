@@ -1,13 +1,13 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Check, Circle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { IconCheck, IconLoader2, IconLogout2, IconAlertCircle, IconCircleCheck, IconCircleCheckFilled } from "@tabler/icons-react"
 import { requestSSE } from "@/infra/http"
 import { useVideoStore } from "@/lib/store/video-store"
 import { cn } from "@/lib/utils"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { AlertSquareIcon, SquareIcon, LogoutSquare02Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 
 type ProcessingStatus = "queue" | "sending" | "creating" | "hunting" | "completed" | "failed"
 
@@ -185,13 +185,13 @@ export default function ProcessingPage() {
               return (
                 <div key={stage} className="flex items-center gap-3">
                   {state === 'failed' ? (
-                    <IconAlertCircle size={20} className="text-destructive" />
+                    <HugeiconsIcon size={16} icon={AlertSquareIcon} className='text-destructive' />
                   ) : state === 'completed' ? (
-                    <IconCircleCheckFilled size={20} className="text-primary" />
+                    <HugeiconsIcon size={16} icon={Tick02Icon} className='text-primary' />
                   ) : state === 'active' ? (
-                    <IconLoader2 size={20} className="animate-spin text-foreground" />
+                    <HugeiconsIcon size={16} icon={AlertSquareIcon} className='animate-spin text-foreground' />
                   ) : (
-                    <Circle size={20} className="text-muted-foreground" />
+                    <HugeiconsIcon size={16} icon={SquareIcon} className='text-muted-foreground' />
                   )}
                   <span className={cn(
                     "text-sm",
@@ -211,7 +211,7 @@ export default function ProcessingPage() {
             onClick={() => router.push("/dashboard/projects")}
             className=" bg-foreground text-background rounded-md hover:bg-foreground/90 transition-colors"
           >
-            <IconLogout2 />
+            <HugeiconsIcon size={16} icon={LogoutSquare02Icon} className='text-destructive' />
             Ir para Projetos
           </Button>
         </div>

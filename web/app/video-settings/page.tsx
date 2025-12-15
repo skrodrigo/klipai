@@ -1,10 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { ArrowLeft, Globe, Layout, Clock, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -12,18 +8,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { IconInfoCircle } from "@tabler/icons-react"
+import { Switch } from "@/components/ui/switch"
 import { createVideo } from "@/infra/videos/videos"
 import { useVideoStore } from "@/lib/store/video-store"
+import { AlertSquareIcon, ArrowLeft02Icon, AspectRatioIcon, Calendar01Icon, Clock01Icon, Globe02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
 
 export default function VideoSettingsPage() {
   const router = useRouter()
   const { videoFile, videoUrl } = useVideoStore()
-  const [language, setLanguage] = useState("pt-br")
   const [ratio, setRatio] = useState("9:16")
   const [clipLength, setClipLength] = useState("60-90")
   const [autoSchedule, setAutoSchedule] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [language, setLanguage] = useState<string>("pt-br")
 
 
   const handleSend = async () => {
@@ -51,12 +51,14 @@ export default function VideoSettingsPage() {
 
   return (
     <div className="w-full flex flex-col p-6 h-screen">
-      <button
+      <Button
+        variant='ghost'
         onClick={() => router.back()}
         className="flex items-center gap-2 text-foreground hover:text-foreground text-sm mb-8 w-fit"
       >
-        <ArrowLeft size={16} /> Voltar
-      </button>
+        <HugeiconsIcon icon={ArrowLeft02Icon} strokeWidth={2} />
+        Voltar
+      </Button>
 
       <div className="flex-1 flex flex-col items-center justify-center ">
         <div className="w-full max-w-xl space-y-8">
@@ -72,10 +74,15 @@ export default function VideoSettingsPage() {
           </div>
 
           <div className="space-y-4">
-            <Select value={language} onValueChange={setLanguage}>
+            <Select
+              value={language}
+              onValueChange={(value) => {
+                if (value) setLanguage(value)
+              }}
+            >
               <SelectTrigger className="border w-full border-border rounded-md h-12 px-4 bg-transparent text-[#ACACAC]">
                 <div className="flex items-center gap-3">
-                  <Globe size={18} />
+                  <HugeiconsIcon size={16} icon={Globe02Icon} />
                   <SelectValue />
                 </div>
               </SelectTrigger>
@@ -93,7 +100,7 @@ export default function VideoSettingsPage() {
             }}>
               <SelectTrigger className="border w-full border-border rounded-md h-12 px-4 bg-transparent text-[#ACACAC]">
                 <div className="flex items-center gap-3">
-                  <Layout size={18} />
+                  <HugeiconsIcon size={16} icon={AspectRatioIcon} />
                   <SelectValue />
                 </div>
               </SelectTrigger>
@@ -111,7 +118,7 @@ export default function VideoSettingsPage() {
             }}>
               <SelectTrigger className="border w-full border-border rounded-md h-12 px-4 bg-transparent text-[#ACACAC]">
                 <div className="flex items-center gap-3">
-                  <Clock size={18} />
+                  <HugeiconsIcon size={16} icon={Clock01Icon} />
                   <SelectValue />
                 </div>
               </SelectTrigger>
@@ -124,7 +131,7 @@ export default function VideoSettingsPage() {
 
             <div className="border border-border rounded-md p-4 flex items-center justify-between bg-transparent">
               <div className="flex items-center gap-3 text-sm text-foreground">
-                <Calendar size={18} />
+                <HugeiconsIcon size={16} icon={Calendar01Icon} />
                 Auto Agendamento e post
               </div>
               <Switch checked={autoSchedule} onCheckedChange={setAutoSchedule} />
@@ -142,7 +149,7 @@ export default function VideoSettingsPage() {
               <p className="text-end text-base text-foreground">
                 Irá usar 124 créditos
               </p>
-              <IconInfoCircle className="w-4 h-4" />
+              <HugeiconsIcon size={16} icon={AlertSquareIcon} />
             </div>
 
           </div>

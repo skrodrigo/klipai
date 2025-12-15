@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { IconCalendar, IconHome, IconArchive, IconAsterisk, IconLogout, IconSearch, IconUser, IconSocial, IconFileAnalytics } from "@tabler/icons-react"
 import Image from "next/image"
-
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Sidebar,
   SidebarContent,
@@ -31,12 +30,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useUpgradeDialog } from "@/contexts/upgrade-dialog-context"
 import { sampleProjects } from "@/lib/events/sample-projects"
+import { Analytics01Icon, Archive03Icon, Calendar01Icon, FallingStarIcon, Home07Icon, LogoutSquare02Icon, Search01Icon, UserSquareIcon } from "@hugeicons/core-free-icons"
 
 type CommandOption = {
   label: string
@@ -55,27 +54,27 @@ const nav = [
   {
     title: "Home",
     url: "/dashboard",
-    icon: IconHome,
+    icon: Home07Icon,
   },
   {
     title: "Projetos",
     url: "/dashboard/projects",
-    icon: IconArchive,
+    icon: Archive03Icon,
   },
   {
     title: "Calendário",
     url: "/dashboard/calendar",
-    icon: IconCalendar,
+    icon: Calendar01Icon,
   },
   {
     title: "Accounts",
     url: "/dashboard/accounts",
-    icon: IconSocial,
+    icon: UserSquareIcon,
   },
   {
     title: "Analytics",
     url: "/dashboard/analytics",
-    icon: IconFileAnalytics,
+    icon: Analytics01Icon,
   },
 ]
 
@@ -109,24 +108,25 @@ export function AppSidebar() {
       <Sidebar>
         <SidebarHeader className="space-y-4">
           <div className="flex justify-between items-center">
-            <Image src='/logos/klipai.svg' alt="logo" width={100} height={100} className="mt-6 w-10" />
-            <DropdownMenu >
-              <DropdownMenuTrigger className="flex pt-4 justify-end items-end">
-                <div>
-                  <Avatar className="cursor-pointer h-10 w-10">
+            <Image src='/logos/klipai.svg' alt="logo" width={100} height={100} className="mt-6 w-16" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <div className="flex pt-4 justify-end items-end cursor-pointer">
+                  <Avatar className="h-10 w-10">
                     <AvatarImage src="https://avatars.githubusercontent.com/u/142619236?v=4" alt="Rodrigo" />
                     <AvatarFallback>RC</AvatarFallback>
                   </Avatar>
                 </div>
               </DropdownMenuTrigger>
+
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuItem onSelect={() => router.push("/profile")}>
-                  <IconUser className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <HugeiconsIcon size={16} icon={UserSquareIcon} className="mr-2 h-4 w-4 text-muted-foreground" />
                   Account
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => router.push("/")} className="focus:bg-red-200 focus:text-red-800 transition-colors">
-                  <IconLogout className="mr-2 h-4 w-4 focus:text-red-800 " />
+                <DropdownMenuItem onSelect={() => router.push("/")} className="focus:bg-destructive transition-colors">
+                  <HugeiconsIcon size={16} icon={LogoutSquare02Icon} className="mr-2 h-4 w-4 focus:text-white" />
                   Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -134,7 +134,7 @@ export function AppSidebar() {
           </div>
           <TeamSwitcher />
           <div className="relative w-full">
-            <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <HugeiconsIcon size={16} icon={Search01Icon} className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar..."
               className="h-10 rounded-md bg-transparent pl-10 text-sm"
@@ -153,11 +153,12 @@ export function AppSidebar() {
               <SidebarMenu className="space-y-2">
                 {nav.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton  >
-                      <a href={item.url} className="flex justify-start gap-2 items-center">
-                        <item.icon />
-                        <span >{item.title}</span>
-                      </a>
+                    <SidebarMenuButton
+                      onClick={() => router.push(item.url)}
+                      className="flex justify-start gap-2 items-center w-full cursor-pointer"
+                    >
+                      <HugeiconsIcon size={16} icon={item.icon} className="size-4" />
+                      <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -167,7 +168,7 @@ export function AppSidebar() {
         </SidebarContent>
         <div className="border-t border-border p-4 space-y-4">
           <div className="border border-border rounded-md px-3 gap-2 py-2 flex items-center text-sm">
-            <IconAsterisk className="text-accent size-4" />
+            <HugeiconsIcon size={16} icon={FallingStarIcon} className="text-accent size-4" />
             <div className="flex-1">
               <p className="text-xs text-muted-foreground leading-none">Créditos</p>
               <p className="text-sm font-medium">60 restantes</p>

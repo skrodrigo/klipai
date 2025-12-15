@@ -1,13 +1,15 @@
 "use client";
 
 import { format, isSameDay } from "date-fns";
-import { XIcon } from "lucide-react";
+
 import { useEffect, useMemo, useRef } from "react";
 
 import {
   type CalendarEvent,
   EventItem,
 } from "@/components/event-calendar";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
 interface EventsPopupProps {
   date: Date;
@@ -103,7 +105,7 @@ export function EventsPopup({
           onClick={onClose}
           type="button"
         >
-          <XIcon className="h-4 w-4" />
+          <HugeiconsIcon size={16} icon={Cancel01Icon} />
         </button>
       </div>
 

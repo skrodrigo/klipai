@@ -1,9 +1,10 @@
 "use client"
 
 import React, { useState } from "react"
-import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
+import { Cancel01FreeIcons } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 
 export default function AccountsPage() {
   const [showModal, setShowModal] = useState(false)
@@ -18,7 +19,7 @@ export default function AccountsPage() {
   ]
 
   return (
-    <div className="flex-1 p-12">
+    <div className="flex-1 p-12 flex flex-col">
       <h1 className="text-2xl mb-8 text-foreground">Contas</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -46,7 +47,7 @@ export default function AccountsPage() {
               onClick={() => setShowModal(false)}
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
             >
-              <X size={20} />
+              <HugeiconsIcon icon={Cancel01FreeIcons} />
             </button>
 
             <div className="text-center">

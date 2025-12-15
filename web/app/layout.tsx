@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/auth-context";
 import { UpgradeDialogProvider } from "@/contexts/upgrade-dialog-context";
-
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const instrumentSerif = Instrument_Serif({
   variable: "--font-instrument-serif",
@@ -35,7 +35,9 @@ export default function RootLayout({
                 defaultTheme="dark"
                 enableSystem
                 disableTransitionOnChange>
-                {children}
+                <ScrollArea>
+                  {children}
+                </ScrollArea>
               </ThemeProvider>
             </AuthProvider>
           </UpgradeDialogProvider>

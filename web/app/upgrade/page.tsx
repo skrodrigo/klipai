@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { IconArrowLeft } from "@tabler/icons-react"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowLeft02Icon } from "@hugeicons/core-free-icons"
 
 const plans = [
   {
@@ -56,12 +57,14 @@ export default function UpgradePage() {
 
   return (
     <div className="w-full flex flex-col p-6">
-      <button
+      <Button
+        variant='ghost'
         className="flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground mb-8 w-fit"
         onClick={() => router.back()}
       >
-        <IconArrowLeft className="size-4" /> Voltar
-      </button>
+        <HugeiconsIcon icon={ArrowLeft02Icon} strokeWidth={2} />
+        Voltar
+      </Button>
 
       <div className="flex-1 flex flex-col">
         <div className="mx-auto flex max-w-5xl flex-col gap-8 w-full">

@@ -30,6 +30,12 @@ export async function listVideoClips(videoId: number | null): Promise<VideoClip[
   return data.results ?? []
 }
 
+export async function deleteVideo(videoId: number): Promise<void> {
+  await request(`/api/videos/${videoId}/`, {
+    method: "DELETE",
+  })
+}
+
 export function getVideoProgress(videoId: number | null): EventSource | null {
   if (!videoId) return null
   return requestSSE(`/api/videos/${videoId}/progress/`)

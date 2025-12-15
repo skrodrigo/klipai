@@ -12,12 +12,6 @@ import {
   subMonths,
   subWeeks,
 } from "date-fns";
-import {
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  PlusIcon,
-} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,6 +38,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01Icon, ArrowLeft01Icon, ArrowRight01Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 
 export interface EventCalendarProps {
   events?: CalendarEvent[];
@@ -297,7 +293,7 @@ export function EventCalendar({
                 size="icon"
                 variant="ghost"
               >
-                <ChevronLeftIcon aria-hidden="true" size={16} />
+                <HugeiconsIcon size={16} icon={ArrowLeft01Icon} />
               </Button>
               <Button
                 aria-label="Next"
@@ -305,7 +301,7 @@ export function EventCalendar({
                 size="icon"
                 variant="ghost"
               >
-                <ChevronRightIcon aria-hidden="true" size={16} />
+                <HugeiconsIcon size={16} icon={ArrowRight01Icon} />
               </Button>
             </div>
             <h2 className="font-semibold text-sm sm:text-lg md:text-xl">
@@ -324,11 +320,9 @@ export function EventCalendar({
                       {view.charAt(0).toUpperCase() + view.slice(1)}
                     </span>
                   </span>
-                  <ChevronDownIcon
-                    aria-hidden="true"
+                  <HugeiconsIcon aria-hidden="true"
                     className="-me-1 opacity-60"
-                    size={16}
-                  />
+                    size={16} icon={ArrowDown01Icon} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-32">
@@ -354,11 +348,7 @@ export function EventCalendar({
               }}
               size="sm"
             >
-              <PlusIcon
-                aria-hidden="true"
-                className="sm:-ms-1 opacity-60"
-                size={16}
-              />
+              <HugeiconsIcon aria-hidden="true" className="sm:-ms-1 opacity-60" size={16} icon={PlusSignIcon} />
               <span className="max-sm:sr-only">New event</span>
             </Button>
           </div>
