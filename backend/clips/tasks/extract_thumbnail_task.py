@@ -2,10 +2,11 @@ import logging
 import cv2
 import os
 import glob
+import subprocess
 from celery import shared_task
 from ..models import Video, Organization
 from ..services.storage_service import R2StorageService
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,52 @@ def extract_thumbnail_task(self, video_id: str):
         cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
         
         ret, frame = cap.read()
-        
+
         if not ret:
             cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
             ret, frame = cap.read()
-            if not ret:
-                raise Exception("Não foi possível ler nenhum frame do vídeo")
+
+        if not ret:
+            thumbnail_dir = os.path.join(video_dir, 'thumbnails')
+            os.makedirs(thumbnail_dir, exist_ok=True)
+            thumbnail_path = os.path.join(thumbnail_dir, f"{video_id}_thumb.jpg")
+
+            ffmpeg_path = getattr(settings, "FFMPEG_PATH", "ffmpeg")
+            ts = max(float(video.duration or 0) * 0.25, 1.0)
+            cmd = [
+                ffmpeg_path,
+                "-ss", str(ts),
+                "-i", video_path,
+                "-frames:v", "1",
+                "-vf", "scale=320:-1",
+                "-q:v", "4",
+                "-y",
+                thumbnail_path,
+            ]
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            logger.info(f"Fazendo upload da thumbnail para R2...")
+            storage = R2StorageService()
+            r2_thumbnail_path = storage.upload_thumbnail(thumbnail_path, video.organization_id, video_id)
+
+            video.thumbnail_storage_path = r2_thumbnail_path
+            video.last_successful_step = "extracting_thumbnail"
+            video.status = "normalizing"
+            video.current_step = "normalizing"
+            video.save()
+
+            logger.info(f"Thumbnail salva com sucesso: {r2_thumbnail_path}")
+            update_job_status(str(video_id), "normalizing", progress=20, current_step="normalizing")
+
+            org = Organization.objects.get(organization_id=video.organization_id)
+
+            from .normalize_video_task import normalize_video_task
+            normalize_video_task.apply_async(
+                args=[str(video_id)],
+                queue=f"video.normalize.{get_plan_tier(org.plan)}",
+            )
+
+            return str(video_id)
 
         original_height, original_width = frame.shape[:2]
         max_dim = 320
@@ -104,7 +145,7 @@ def extract_thumbnail_task(self, video_id: str):
         from .normalize_video_task import normalize_video_task
         normalize_video_task.apply_async(
             args=[str(video_id)],
-            queue=f"video.normalize.{org.plan}",
+            queue=f"video.normalize.{get_plan_tier(org.plan)}",
         )
         
         return str(video_id)
@@ -120,7 +161,7 @@ def extract_thumbnail_task(self, video_id: str):
             raise self.retry(exc=e, countdown=2 ** self.request.retries)
         else:
             if video:
-                update_job_status(str(video_id), "extracting_thumbnail", "failed", str(e))
+                update_job_status(str(video_id), "failed", progress=100, current_step="extracting_thumbnail")
             raise e
             
     finally:

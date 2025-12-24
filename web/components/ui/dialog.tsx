@@ -31,7 +31,7 @@ function DialogOverlay({
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
-      className={cn("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 isolate z-50", className)}
+      className={cn("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-background/15 duration-100 fixed inset-0 isolate z-50", className)}
       {...props}
     />
   )
@@ -51,14 +51,14 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 grid max-w-[calc(100%-2rem)] gap-4 rounded-xl p-4 text-sm ring-1 duration-100 sm:max-w-sm fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
+          "bg-background data-open:animate-in data-closed:animate-out border border-border data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 grid max-w-[calc(100%-2rem)] gap-4 rounded-xl p-4 text-sm duration-100 sm:max-w-sm fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
           className
         )}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm"><HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} /><span className="sr-only">Close</span></Button>} />
+          <DialogPrimitive.Close data-slot="dialog-close" render={<Button variant="ghost" className="absolute top-1 right-1 py-0.5 px-2.5 hover:bg-transparent hover:text-muted-foreground"><HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} /><span className="sr-only">Close</span></Button>} />
         )}
       </DialogPrimitive.Popup>
     </DialogPortal>

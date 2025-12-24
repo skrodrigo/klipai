@@ -1,19 +1,6 @@
 import { request } from '../http'
+import type { ConfirmUploadResponse, GenerateUploadUrlResponse, IngestFromUrlResponse } from './types/videos-types'
 
-export interface GenerateUploadUrlResponse {
-  upload_url: string
-  video_id: string
-  key: string
-}
-
-export interface ConfirmUploadResponse {
-  video_id: string
-  status: string
-}
-
-/**
- * Gera uma URL pré-assinada para upload de vídeo no R2
- */
 export async function generateUploadUrl(
   filename: string,
   fileSize: number,
@@ -31,9 +18,6 @@ export async function generateUploadUrl(
   })
 }
 
-/**
- * Faz upload do arquivo para o R2 usando a URL pré-assinada
- */
 export async function uploadToR2(
   uploadUrl: string,
   file: File,
@@ -56,9 +40,6 @@ export async function uploadToR2(
   }
 }
 
-/**
- * Confirma que o upload foi concluído
- */
 export async function confirmUpload(
   videoId: string,
   fileSize: number
@@ -72,12 +53,39 @@ export async function confirmUpload(
   })
 }
 
-/**
- * Fluxo completo de upload:
- * 1. Gera URL pré-assinada
- * 2. Faz upload do arquivo para R2
- * 3. Confirma o upload
- */
+export async function ingestVideoFromUrl(
+  sourceUrl: string,
+  sourceType: string = 'url'
+): Promise<IngestFromUrlResponse> {
+  return request<IngestFromUrlResponse>('/api/videos/upload/from-url/', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_url: sourceUrl,
+      source_type: sourceType,
+    }),
+  })
+}
+
+export interface StartIngestionFromUrlResponse {
+  video_id: string
+  status: string
+  task_id: string
+  job_id?: string
+}
+
+export async function startIngestionFromUrl(
+  videoId: string,
+  configuration?: Record<string, any>
+): Promise<StartIngestionFromUrlResponse> {
+  return request<StartIngestionFromUrlResponse>('/api/videos/upload/from-url/start/', {
+    method: 'POST',
+    body: JSON.stringify({
+      video_id: videoId,
+      configuration,
+    }),
+  })
+}
+
 export async function uploadVideo(file: File, videoId: string): Promise<string> {
   try {
     // Step 1: Gerar URL pré-assinada

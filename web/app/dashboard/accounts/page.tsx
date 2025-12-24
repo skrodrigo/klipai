@@ -1,68 +1,157 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import { Cancel01FreeIcons } from "@hugeicons/core-free-icons"
+import { Cancel01FreeIcons, CheckmarkCircleFreeIcons, AlertCircleFreeIcons } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useOAuth } from "@/hooks/useOAuth"
+
+interface SocialAccount {
+  social_account_id: string
+  platform: string
+  username: string
+  display_name: string
+  profile_picture: string
+  connected_at: string
+  last_used_at: string | null
+  token_expired: boolean
+}
+
+const PLATFORMS = [
+  { id: "tiktok", name: "TikTok", icon: "/social/tiktok.svg", desc: "Feed ou Inbox" },
+  { id: "instagram", name: "Instagram", icon: "/social/instagram.svg", desc: "Feed" },
+  { id: "youtube", name: "YouTube", icon: "/social/shorts.svg", desc: "Feed" },
+  { id: "facebook", name: "Facebook", icon: "/social/facebook.svg", desc: "Feed" },
+  { id: "linkedin", name: "LinkedIn", icon: "/social/linkedin.svg", desc: "Feed" },
+  { id: "twitter", name: "X", icon: "/social/x.svg", desc: "Feed" },
+]
 
 export default function AccountsPage() {
   const [showModal, setShowModal] = useState(false)
+  const [connectedAccounts, setConnectedAccounts] = useState<SocialAccount[]>([])
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const { initiateOAuth, disconnectAccount, listAccounts, loading, error } = useOAuth()
 
-  const accounts = [
-    { name: "TikTok", icon: "/social/tiktok.svg", status: "Conectar", desc: "Feed ou Inbox" },
-    { name: "LinkedIn", icon: "/social/linkedin.svg", status: "Conectar", desc: "Feed" },
-    { name: "YouTube", icon: "/social/shorts.svg", status: "Conectar", desc: "Feed" },
-    { name: "Facebook", icon: "/social/facebook.svg", status: "Conectar", desc: "Feed" },
-    { name: "Instagram", icon: "/social/instagram.svg", status: "Conectar", desc: "Feed" },
-    { name: "X", icon: "/social/x.svg", status: "Desconectar", desc: "Feed", connected: true },
-  ]
+  // Load connected accounts on mount
+  useEffect(() => {
+    loadAccounts()
+  }, [])
+
+  // Check for OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('connected') === 'true') {
+      loadAccounts()
+      // Clear URL params
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [])
+
+  const loadAccounts = async () => {
+    setIsLoading(true)
+    const accounts = await listAccounts()
+    setConnectedAccounts(accounts)
+    setIsLoading(false)
+  }
+
+  const isConnected = (platformId: string) => {
+    return connectedAccounts.some(acc => acc.platform === platformId)
+  }
+
+  const getConnectedAccount = (platformId: string) => {
+    return connectedAccounts.find(acc => acc.platform === platformId)
+  }
+
+  const handleConnect = async (platformId: string) => {
+    setSelectedPlatform(platformId)
+    await initiateOAuth(platformId)
+  }
+
+  const handleDisconnect = async (platformId: string) => {
+    if (confirm(`Tem certeza que deseja desconectar ${platformId}?`)) {
+      await disconnectAccount(platformId)
+      await loadAccounts()
+    }
+  }
 
   return (
     <div className="flex-1 p-12 flex flex-col">
-      <h1 className="text-2xl mb-8 text-foreground">Contas</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {accounts.map((acc) => (
-          <div key={acc.name} className="bg-card rounded-md p-6 flex flex-col h-48">
-            <Image src={acc.icon} alt={acc.name} width={30} height={30} className="h-[30px] mb-4" />
-            <h3 className="text-lg font-semibold text-foreground">{acc.name}</h3>
-            <p className="text-muted-foreground text-sm mb-auto">{acc.desc}</p>
-
-            <Button
-              variant={acc.connected ? "destructive" : "default"}
-              className="w-full"
-              onClick={() => !acc.connected && setShowModal(true)}
-            >
-              {acc.status}
-            </Button>
-          </div>
-        ))}
+      <div className="mb-8">
+        <h1 className="text-2xl text-foreground mb-2">Contas</h1>
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-card border border-border rounded-md p-8 w-full max-w-md relative">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {PLATFORMS.map((platform) => {
+          const connected = isConnected(platform.id)
+          const account = getConnectedAccount(platform.id)
+
+          return (
+            <div
+              key={platform.id}
+              className={`rounded-lg border p-6 flex flex-col h-full transition-all ${connected
+                ? "bg-card border-green-500/20 shadow-sm"
+                : "bg-card border-border hover:border-border/80"
+                }`}
             >
-              <HugeiconsIcon icon={Cancel01FreeIcons} />
-            </button>
+              <div className="flex items-start justify-between mb-4">
+                <Image
+                  src={platform.icon}
+                  alt={platform.name}
+                  width={32}
+                  height={32}
+                  className="h-8 w-8"
+                />
+                {connected && (
+                  <HugeiconsIcon icon={CheckmarkCircleFreeIcons} className="w-5 h-5 text-green-500" />
+                )}
+              </div>
 
-            <div className="text-center">
-              <h2 className="text-xl font-bold text-foreground mb-2">Conecte uma conta primeiro</h2>
-              <p className="text-muted-foreground text-sm mb-8">
-                Você só pode postar em redes se conectar pelo menos uma primeiro
-              </p>
+              <h3 className="text-lg font-semibold text-foreground mb-1">{platform.name}</h3>
+              <p className="text-muted-foreground text-sm mb-4">{platform.desc}</p>
 
-              <Button className="w-full h-12" onClick={() => setShowModal(false)}>
-                Conectar Conta
-              </Button>
+              {connected && account && (
+                <div className="mb-4 p-3 bg-muted rounded-md">
+                  <p className="text-xs text-muted-foreground mb-1">Conectado como:</p>
+                  <p className="text-sm font-medium text-foreground">{account.display_name || account.username}</p>
+                  {account.token_expired && (
+                    <p className="text-xs text-yellow-600 mt-2">⚠️ Token expirado - reconecte para continuar</p>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-auto space-y-2">
+                {!connected ? (
+                  <Button
+                    onClick={() => handleConnect(platform.id)}
+                    disabled={loading && selectedPlatform === platform.id}
+                    className="w-full"
+                  >
+                    {loading && selectedPlatform === platform.id ? "Conectando..." : "Conectar"}
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="outline" className="w-full" disabled>
+                      Conectado
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => handleDisconnect(platform.id)}
+                      disabled={loading}
+                    >
+                      Desconectar
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )
+        })}
+      </div>
     </div>
   )
 }

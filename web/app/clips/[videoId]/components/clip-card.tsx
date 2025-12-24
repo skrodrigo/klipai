@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Progress } from "@/components/ui/progress"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Download01Icon, Share03Icon, SentIcon, GlobeIcon, LockIcon, PlayIcon, PauseIcon } from "@hugeicons/core-free-icons"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ClipActions } from "./clip-actions"
 import type { Clip } from "@/infra/videos/videos"
 
@@ -47,16 +49,128 @@ export function ClipCard({
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
 
+  const [currentTime, setCurrentTime] = useState(0)
+  const [videoDuration, setVideoDuration] = useState(0)
+  const [videoHeight, setVideoHeight] = useState<number | null>(null)
+
+  const transcriptScrollRef = useRef<HTMLDivElement>(null)
+  const [showTranscriptTopFade, setShowTranscriptTopFade] = useState(false)
+  const [showTranscriptBottomFade, setShowTranscriptBottomFade] = useState(false)
+
+  useEffect(() => {
+    const scrollElement = transcriptScrollRef.current?.querySelector(
+      "[data-radix-scroll-area-viewport]",
+    ) as HTMLDivElement | null
+
+    if (!scrollElement) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollElement
+      setShowTranscriptTopFade(scrollTop > 0)
+      setShowTranscriptBottomFade(scrollTop + clientHeight < scrollHeight - 1)
+    }
+
+    handleScroll()
+    scrollElement.addEventListener("scroll", handleScroll)
+    return () => scrollElement.removeEventListener("scroll", handleScroll)
+  }, [clip.transcript])
+
+  const formatDuration = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return null
+    const totalSeconds = Math.round(seconds)
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    return mins > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : `${secs}s`
+  }
+
+  const formatTimeLabel = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return "00:00"
+    const totalSeconds = Math.floor(seconds)
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  }
+
+  const clipDurationSeconds =
+    typeof (clip as any).duration === "number"
+      ? (clip as any).duration
+      : typeof (clip as any).start_time === "number" && typeof (clip as any).end_time === "number"
+        ? (clip as any).end_time - (clip as any).start_time
+        : null
+
+  const clipDurationLabel = clipDurationSeconds !== null ? formatDuration(clipDurationSeconds) : null
+
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause()
       } else {
+        window.dispatchEvent(new CustomEvent("clip-video-play", { detail: { clipId: clip.clip_id } }))
         videoRef.current.play()
       }
       setIsPlaying(!isPlaying)
     }
   }
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const handleLoadedMetadata = () => {
+      if (Number.isFinite(video.duration)) {
+        setVideoDuration(video.duration)
+      }
+      if (Number.isFinite(video.videoHeight) && video.videoHeight > 0) {
+        setVideoHeight(video.videoHeight)
+      }
+    }
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime || 0)
+      if (Number.isFinite(video.duration)) {
+        setVideoDuration(video.duration)
+      }
+    }
+
+    const handleEnded = () => {
+      setIsPlaying(false)
+    }
+
+    const handleExternalPlay = (event: Event) => {
+      const e = event as CustomEvent<{ clipId?: string }>
+      if (e?.detail?.clipId && e.detail.clipId !== clip.clip_id) {
+        if (videoRef.current && !videoRef.current.paused) {
+          videoRef.current.pause()
+        }
+        setIsPlaying(false)
+      }
+    }
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata)
+    video.addEventListener("durationchange", handleLoadedMetadata)
+    video.addEventListener("timeupdate", handleTimeUpdate)
+    video.addEventListener("ended", handleEnded)
+    window.addEventListener("clip-video-play", handleExternalPlay)
+
+    handleLoadedMetadata()
+    handleTimeUpdate()
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata)
+      video.removeEventListener("durationchange", handleLoadedMetadata)
+      video.removeEventListener("timeupdate", handleTimeUpdate)
+      video.removeEventListener("ended", handleEnded)
+      window.removeEventListener("clip-video-play", handleExternalPlay)
+    }
+  }, [clip.video_url])
+
+  const qualityLabel = (() => {
+    if (!videoHeight) return null
+    if (videoHeight >= 1080) return "1080p"
+    if (videoHeight >= 720) return "720p"
+    if (videoHeight >= 480) return "480p"
+    return `${videoHeight}p`
+  })()
 
   return (
     <div id={`clip-${clip.clip_id}`} className="flex flex-col lg:flex-row gap-8 items-start group">
@@ -78,18 +192,68 @@ export function ClipCard({
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
-              <button
-                onClick={togglePlayPause}
-                className="absolute inset-0 flex items-center justify-center hover:bg-black/50 transition-colors hover:opacity-100 opacity-0 duration-700ms"
-              >
-                <div className="bg-background cursor-pointer rounded-full p-4 transition-colors duration-700ms">
-                  <HugeiconsIcon
-                    icon={isPlaying ? PauseIcon : PlayIcon}
-                    size={32}
-                    className="text-primary"
-                  />
+
+              {qualityLabel ? (
+                <div className="absolute top-2 left-2 z-10 rounded-md bg-black/60 px-2 py-1 text-[11px] font-medium text-white">
+                  {qualityLabel}
                 </div>
-              </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                className="absolute inset-0"
+                aria-label={isPlaying ? "Pause" : "Play"}
+              />
+
+              {!isPlaying ? (
+                <button
+                  type="button"
+                  onClick={togglePlayPause}
+                  className="absolute inset-0 z-10 flex items-center justify-center"
+                  aria-label="Play"
+                >
+                  <div className="bg-background/90 backdrop-blur cursor-pointer rounded-full p-4">
+                    <HugeiconsIcon icon={PlayIcon} size={32} className="text-primary" />
+                  </div>
+                </button>
+              ) : null}
+
+              {isPlaying ? (
+                <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-2">
+                  <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/70 to-transparent" />
+
+                  <div className="relative">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={togglePlayPause}
+                        className="text-white"
+                        aria-label={isPlaying ? "Pause" : "Play"}
+                      >
+                        <HugeiconsIcon icon={isPlaying ? PauseIcon : PlayIcon} size={16} />
+                      </button>
+
+                      <div className="flex items-center gap-0.5 text-white text-xs font-medium tabular-nums">
+                        <span>{formatTimeLabel(currentTime)}</span>
+                        <span>/</span>
+                        <span>{formatTimeLabel(videoDuration || clipDurationSeconds || 0)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2">
+                      <Progress
+                        className="w-full"
+                        value={
+                          videoDuration > 0
+                            ? Math.max(0, Math.min(100, (currentTime / videoDuration) * 100))
+                            : 0
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 bg-gradient-to-br from-zinc-800 to-zinc-900">
@@ -114,7 +278,9 @@ export function ClipCard({
           <div className="flex items-baseline gap-1">
             <span className="text-4xl font-bold text-white tracking-tighter">
               {clip.engagement_score !== undefined && clip.engagement_score !== null
-                ? (clip.engagement_score / 10).toFixed(1)
+                ? clip.engagement_score % 1 === 0
+                  ? clip.engagement_score.toString()
+                  : clip.engagement_score.toFixed(1)
                 : "N/A"}
             </span>
             <span className="text-sm font-medium text-zinc-500">/10</span>
@@ -199,10 +365,20 @@ export function ClipCard({
         </div>
 
         {/* Transcript Text */}
-        <div className="bg-transparent">
-          <p className="text-sm text-muted-foreground leading-7">
-            {clip.transcript || "Transcrição não disponível para este clip."}
-          </p>
+        <div className="bg-transparent relative">
+          {showTranscriptTopFade && (
+            <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-background to-transparent z-10 pointer-events-none" />
+          )}
+          <ScrollArea ref={transcriptScrollRef}>
+            <div className="pr-4 max-h-[380px] cursor-ns-resize">
+              <p className="text-sm text-muted-foreground leading-7 text-justify">
+                {clip.transcript || "Transcrição não disponível para este clip."}
+              </p>
+            </div>
+          </ScrollArea>
+          {showTranscriptBottomFade && (
+            <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-background to-transparent z-10 pointer-events-none" />
+          )}
         </div>
       </div>
 

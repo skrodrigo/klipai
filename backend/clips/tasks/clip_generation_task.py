@@ -57,6 +57,14 @@ def clip_generation_task(self, video_id: str) -> dict:
             clip_uuid = uuid.uuid4()
             start_time = float(clip.get("start_time", 0))
             end_time = float(clip.get("end_time", 0))
+
+            try:
+                if video.duration and float(video.duration) > 0:
+                    end_time = min(end_time + 1.0, float(video.duration))
+                else:
+                    end_time = end_time + 1.0
+            except Exception:
+                end_time = end_time + 1.0
             hook_title = clip.get("title") or clip.get("hook_title", f"Clip {idx + 1}")
             
             matched_caption = next((c for c in caption_files if c.get("index") == idx), None)
@@ -82,11 +90,10 @@ def clip_generation_task(self, video_id: str) -> dict:
                 clip_id=str(clip_uuid),
             )
 
-            # Transcrição já vem limpa do Gemini (sem timestamps)
             transcript_text = clip.get("text", "")
             
-            # Score vem do select_clips_task como "score" (0-100)
-            engagement_score = int(clip.get("score", 0))
+            score_0_100 = float(clip.get("score", 0) or 0)
+            engagement_score = round(score_0_100 / 10.0, 2) 
             
             Clip.objects.create(
                 clip_id=clip_uuid,

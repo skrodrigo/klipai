@@ -15,52 +15,42 @@ app.conf.task_queues = {
     
     # Download (por plano)
     "video.download.starter": {"exchange": "video", "routing_key": "download.starter", "priority": 1},
-    "video.download.pro": {"exchange": "video", "routing_key": "download.pro", "priority": 5},
     "video.download.business": {"exchange": "video", "routing_key": "download.business", "priority": 10},
     
     # Normalize (por plano)
     "video.normalize.starter": {"exchange": "video", "routing_key": "normalize.starter", "priority": 1},
-    "video.normalize.pro": {"exchange": "video", "routing_key": "normalize.pro", "priority": 5},
     "video.normalize.business": {"exchange": "video", "routing_key": "normalize.business", "priority": 10},
     
     # Transcribe (por plano)
     "video.transcribe.starter": {"exchange": "video", "routing_key": "transcribe.starter", "priority": 1},
-    "video.transcribe.pro": {"exchange": "video", "routing_key": "transcribe.pro", "priority": 5},
     "video.transcribe.business": {"exchange": "video", "routing_key": "transcribe.business", "priority": 10},
     
     # Analyze (por plano)
     "video.analyze.starter": {"exchange": "video", "routing_key": "analyze.starter", "priority": 1},
-    "video.analyze.pro": {"exchange": "video", "routing_key": "analyze.pro", "priority": 5},
     "video.analyze.business": {"exchange": "video", "routing_key": "analyze.business", "priority": 10},
     
     # Classify (por plano)
     "video.classify.starter": {"exchange": "video", "routing_key": "classify.starter", "priority": 1},
-    "video.classify.pro": {"exchange": "video", "routing_key": "classify.pro", "priority": 5},
     "video.classify.business": {"exchange": "video", "routing_key": "classify.business", "priority": 10},
     
     # Select (por plano)
     "video.select.starter": {"exchange": "video", "routing_key": "select.starter", "priority": 1},
-    "video.select.pro": {"exchange": "video", "routing_key": "select.pro", "priority": 5},
     "video.select.business": {"exchange": "video", "routing_key": "select.business", "priority": 10},
     
     # Reframe (por plano)
     "video.reframe.starter": {"exchange": "video", "routing_key": "reframe.starter", "priority": 1},
-    "video.reframe.pro": {"exchange": "video", "routing_key": "reframe.pro", "priority": 5},
     "video.reframe.business": {"exchange": "video", "routing_key": "reframe.business", "priority": 10},
     
     # Scoring (por plano)
     "video.scoring.starter": {"exchange": "video", "routing_key": "scoring.starter", "priority": 1},
-    "video.scoring.pro": {"exchange": "video", "routing_key": "scoring.pro", "priority": 5},
     "video.scoring.business": {"exchange": "video", "routing_key": "scoring.business", "priority": 10},
     
     # Clip (por plano)
     "video.clip.starter": {"exchange": "video", "routing_key": "clip.starter", "priority": 1},
-    "video.clip.pro": {"exchange": "video", "routing_key": "clip.pro", "priority": 5},
     "video.clip.business": {"exchange": "video", "routing_key": "clip.business", "priority": 10},
     
     # Caption (por plano)
     "video.caption.starter": {"exchange": "video", "routing_key": "caption.starter", "priority": 1},
-    "video.caption.pro": {"exchange": "video", "routing_key": "caption.pro", "priority": 5},
     "video.caption.business": {"exchange": "video", "routing_key": "caption.business", "priority": 10},
     
     # Cron jobs
@@ -68,23 +58,6 @@ app.conf.task_queues = {
     "cron.cleanup": {"exchange": "cron", "routing_key": "cleanup"},
 }
 
-# Configuração de cron jobs (beat schedule)
-app.conf.beat_schedule = {
-    # Renovação mensal de créditos (1º dia do mês às 00:00)
-    "renew-credits-monthly": {
-        "task": "clips.tasks.renew_credits_task",
-        "schedule": crontab(day_of_month=1, hour=0, minute=0),
-        "options": {"queue": "cron.credits"},
-    },
-    # Limpeza diária de dados antigos (todos os dias às 02:00)
-    "cleanup-old-data-daily": {
-        "task": "clips.tasks.cleanup_old_data_task",
-        "schedule": crontab(hour=2, minute=0),
-        "options": {"queue": "cron.cleanup"},
-    },
-}
-
-# Roteamento de tasks para filas específicas
 app.conf.task_routes = {
     # Download
     "clips.tasks.download_video_task": {"queue": "video.download.starter"},
@@ -105,7 +78,7 @@ app.conf.task_routes = {
     "clips.tasks.select_clips_task": {"queue": "video.select.starter"},
     
     # Reframe
-    "clips.tasks.reframe_video_task": {"queue": "video.reframe.pro"},
+    "clips.tasks.reframe_video_task": {"queue": "video.reframe.starter"},
     
     # Scoring
     "clips.tasks.clip_scoring_task": {"queue": "video.scoring.starter"},
@@ -118,14 +91,10 @@ app.conf.task_routes = {
     
     # Post
     "clips.tasks.post_to_social_task": {"queue": "default"},
-    
-    # Cron
-    "clips.tasks.renew_credits_task": {"queue": "cron.credits"},
-    "clips.tasks.cleanup_old_data_task": {"queue": "cron.cleanup"},
 }
 
-# Configurações gerais
 app.conf.task_acks_late = True
 app.conf.worker_prefetch_multiplier = 1
-app.conf.task_time_limit = 30 * 60  # 30 minutos por etapa
-app.conf.task_soft_time_limit = 25 * 60  # 25 minutos (aviso antes do hard limit)
+
+app.conf.task_time_limit = int(os.getenv("CELERY_TASK_TIME_LIMIT", str(90 * 60)))
+app.conf.task_soft_time_limit = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(85 * 60)))

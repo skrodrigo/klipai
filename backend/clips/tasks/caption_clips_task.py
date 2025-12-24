@@ -4,7 +4,7 @@ from celery import shared_task
 from django.conf import settings
 
 from ..models import Video, Transcript, Organization
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def caption_clips_task(self, video_id: str) -> dict:
         from .clip_generation_task import clip_generation_task
         clip_generation_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.clip.{org.plan}",
+            queue=f"video.clip.{get_plan_tier(org.plan)}",
         )
 
         return {

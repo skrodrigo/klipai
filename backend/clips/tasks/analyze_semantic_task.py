@@ -5,7 +5,7 @@ from django.conf import settings
 import google.generativeai as genai
 
 from ..models import Video, Transcript, Organization
-from .job_utils import update_job_status
+from .job_utils import update_job_status, get_plan_tier
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,14 @@ def analyze_semantic_task(self, video_id: str) -> dict:
         formatted_text = _format_transcript_with_timestamps(transcript.segments)
         language = transcript.language
 
-        analysis_result = _analyze_with_gemini(formatted_text, language)
+        min_d, max_d = _get_duration_bounds(video_id=str(video.video_id))
+        analysis_result = _analyze_with_gemini(formatted_text, language, min_duration=min_d, max_duration=max_d)
+
+        if "candidates" in analysis_result:
+            for c in analysis_result["candidates"]:
+                c["start_time"] = _clean_number(c.get("start_time", 0))
+                c["end_time"] = _clean_number(c.get("end_time", 0))
+                c["engagement_score"] = _clean_number(c.get("engagement_score", 0))
 
         transcript.analysis_data = analysis_result
         transcript.save()
@@ -46,7 +53,7 @@ def analyze_semantic_task(self, video_id: str) -> dict:
         from .embed_classify_task import embed_classify_task
         embed_classify_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.classify.{org.plan}",
+            queue=f"video.classify.{get_plan_tier(org.plan)}",
         )
 
         return {
@@ -98,7 +105,18 @@ def _format_transcript_with_timestamps(segments: list) -> str:
     return "\n".join(buffer)
 
 
-def _analyze_with_gemini(formatted_text: str, language: str) -> dict:
+def _clean_number(num):
+    """Converte 10.0 para 10 (int), mas mantém 5.8 (float)."""
+    try:
+        f_num = float(num)
+        if f_num.is_integer():
+            return int(f_num)
+        return f_num
+    except:
+        return num
+
+
+def _analyze_with_gemini(formatted_text: str, language: str, min_duration: int, max_duration: int) -> dict:
     _configure_gemini()
     
     response_schema = {
@@ -114,7 +132,7 @@ def _analyze_with_gemini(formatted_text: str, language: str) -> dict:
                         "text": {"type": "string"},
                         "start_time": {"type": "number"},
                         "end_time": {"type": "number"},
-                        "engagement_score": {"type": "integer"},
+                        "engagement_score": {"type": "number"},
                         "hook_title": {"type": "string"},
                         "tone": {"type": "string"},
                     },
@@ -130,21 +148,46 @@ def _analyze_with_gemini(formatted_text: str, language: str) -> dict:
         "required": ["title", "description", "candidates", "overall_tone", "key_topics"]
     }
     
-    base_instructions = """
-    Você é um especialista em edição de vídeo e conteúdo viral.
-    Analise a transcrição fornecida (com timestamps [início-fim]).
-    Identifique os segmentos mais engajantes para shorts (Shorts/Reels/TikTok).
-    
-    CRÍTICO:
-    - Use os timestamps EXATOS fornecidos no texto para start_time e end_time.
-    - Não invente timestamps.
-    - Clips devem ter entre 15 e 60 segundos.
-    - Selecione segmentos que façam sentido sozinhos.
+    base_instructions = f"""
+    Você é um editor de vídeo de classe mundial e estrategista de conteúdo viral.
+    Analise a transcrição fornecida (que contém timestamps no formato [início-fim]).
+    Sua missão é identificar os segmentos com maior potencial viral para Shorts, Reels e TikTok.
+
+    DIRETRIZES CRÍTICAS DE ANÁLISE:
+    1. Timestamps Exatos: Use ESTRITAMENTE os timestamps fornecidos no texto (`start_time` e `end_time`). NUNCA alucine ou invente tempos que não existem na transcrição.
+    2. Duração: Os clips devem ter entre {min_duration} e {max_duration} segundos.
+    3. Contexto: Selecione apenas segmentos que tenham início, meio e fim lógicos (que façam sentido sozinhos).
+    3.1. Autossuficiência: Rejeite trechos que dependam de contexto anterior (ex: "isso", "essa pergunta", "ali", "aqui", "como eu disse", "entendeu?") sem explicar do que se trata.
+    3.2. Valor: Cada candidato precisa ter um takeaway claro (conselho prático, insight, passo-a-passo, ou uma afirmação forte com justificativa). Não retorne frases vazias.
+    3.3. Clareza: Prefira segmentos que poderiam ser entendidos por alguém que nunca viu o vídeo inteiro.
+    4. Critério de Viralidade: Procure por ganchos (hooks) fortes, curiosidades, emoção intensa ou conselhos práticos.
+    5. Escassez de Notas Altas: Seja rigoroso. A maioria dos clips deve ser nota 6 ou 7. Apenas ouro puro recebe 9 ou 10.
+
+    COBERTURA E VARIEDADE (MUITO IMPORTANTE):
+    - Gere uma lista de candidatos maior e bem distribuída ao longo de TODO o vídeo.
+    - Evite retornar apenas 1-2 candidatos. Retorne o máximo possível de candidatos válidos (idealmente 12-25), desde que respeitem as regras.
+    - Evite candidatos sobrepostos (mantenha uma distância mínima de ~5s entre candidatos quando possível).
+
+    FOLGA NO FINAL DO CORTE:
+    - Para evitar cortes “em cima” do fim da fala, faça o `end_time` terminar ~1.0s DEPOIS do final natural do segmento,
+      desde que isso ainda use timestamps existentes e respeite a duração máxima.
+
+    REGRAS DE FORMATAÇÃO NUMÉRICA:
+    Para todos os campos numéricos (start_time, end_time, engagement_score):
+
+    - start_time e end_time: podem ser inteiros ou decimais, mas NÃO use .0 desnecessário.
+    - engagement_score: SEMPRE retorne decimal com 2 casas (ex: 7.34, 8.50, 6.05). Evite notas “redondas”.
+    - Use a escala 0-10, e use toda a faixa (ex: 5.80, 6.45, 7.12, 8.63, 9.41).
+
+    FORMATO DO TEXTO DO CANDIDATO:
+    - Em `text`, inclua o trecho completo do clip (não apenas a frase final).
+    - Evite recortes que comecem/terminem no meio da ideia.
     """
 
     if language.startswith("pt"):
         prompt = f"""{base_instructions}
-        
+        Idioma do Vídeo: Português.
+
         Retorne um JSON com:
         1. title: Título viral para o vídeo original.
         2. description: Descrição SEO.
@@ -154,26 +197,34 @@ def _analyze_with_gemini(formatted_text: str, language: str) -> dict:
         {formatted_text}"""
     else:
         prompt = f"""
-    You are an expert video editor and viral content strategist.
-    Analyze the provided transcript (with timestamps [start-end]).
-    Identify the most engaging segments for shorts (Shorts/Reels/TikTok).
-    
-    CRITICAL:
-    - Use the EXACT timestamps provided in the text for start_time and end_time.
-    - Do not invent timestamps.
-    - Clips should be between 15 and 60 seconds.
-    - Select segments that stand alone.
-    
+    You are a world-class video editor and viral content strategist.
+    Analyze the provided transcript (containing timestamps in [start-end] format).
+    Your mission is to identify segments with the highest viral potential for Shorts, Reels, and TikTok.
+
+    CRITICAL ANALYSIS GUIDELINES:
+    1. Exact Timestamps: STRICTLY use the timestamps provided in the text (`start_time` and `end_time`). NEVER hallucinate or invent times that do not exist in the transcript.
+    2. Duration: Clips must be between {min_duration} and {max_duration} seconds.
+    3. Context: Select only segments that have a logical beginning, middle, and end (stand-alone context).
+    4. Virality Criteria: Look for strong hooks, curiosity gaps, intense emotion, or practical advice.
+    5. High Score Scarcity: Be rigorous. Most clips should be a 6 or 7. Only pure gold gets a 9 or 10.
+
+    NUMERIC FORMATTING RULES:
+    For all numeric fields (start_time, end_time, engagement_score):
+    - start_time and end_time: can be integers or decimals, but do NOT use .0 unnecessarily.
+    - engagement_score: ALWAYS return a decimal with 2 digits (e.g., 7.34, 8.50, 6.05). Avoid round scores.
+    - Use a 0-10 scale and use the full range.
+
     Return JSON with:
     1. title: Viral title for original video.
     2. description: SEO Description.
     3. candidates: List of best clips.
-    
+
     Formatted Transcript:
     {formatted_text}"""
 
     try:
-        model_name = "gemini-flash-latest"
+        # Modelo mais barato possível
+        model_name = "gemini-2.5-flash-lite"
         
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(
@@ -192,3 +243,24 @@ def _analyze_with_gemini(formatted_text: str, language: str) -> dict:
     except Exception as e:
         logger.error(f"Erro na chamada Gemini: {e}")
         raise Exception(f"Falha na IA Generativa: {e}")
+
+
+def _get_duration_bounds(video_id: str) -> tuple[int, int]:
+    try:
+        from ..models import Job
+        job = Job.objects.filter(video_id=video_id).order_by("-created_at").first()
+        cfg = (job.configuration if job else None) or {}
+
+        max_d = cfg.get("max_clip_duration") or cfg.get("maxDuration")
+        if max_d is None:
+            max_d = 60
+        max_d = int(max(10, min(int(max_d), 180)))
+
+        min_d = cfg.get("min_clip_duration") or cfg.get("minDuration")
+        if min_d is None:
+            min_d = max(10, int(round(max_d * 0.6)))
+        min_d = int(max(5, min(int(min_d), max_d)))
+
+        return min_d, max_d
+    except Exception:
+        return 10, 60

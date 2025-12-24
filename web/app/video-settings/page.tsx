@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useVideoStore } from "@/lib/store/video-store"
 import { AlertSquareIcon, ArrowLeft02Icon, AspectRatioIcon, Calendar01Icon, Clock01Icon, Globe02Icon } from "@hugeicons/core-free-icons"
@@ -17,10 +18,12 @@ import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { useQuery } from "@tanstack/react-query"
 import { getSession } from "@/infra/auth/auth"
+import { startIngestionFromUrl } from "@/infra/videos/upload"
+import { Spinner } from "@/components/ui/spinner"
 
 export default function VideoSettingsPage() {
   const router = useRouter()
-  const { videoFile, videoUrl } = useVideoStore()
+  const { videoFile, videoUrl, videoId, videoTitle, thumbnailUrl, duration, fileSize, taskId, setProcessingConfig } = useVideoStore()
   const [ratio, setRatio] = useState("9:16")
   const [clipLength, setClipLength] = useState("60-90")
   const [autoSchedule, setAutoSchedule] = useState(false)
@@ -33,9 +36,13 @@ export default function VideoSettingsPage() {
     queryFn: getSession,
   })
 
-  // Captura a duração do vídeo quando ele é carregado
   useEffect(() => {
     if (!videoUrl) return
+
+    if (duration) {
+      setVideoDuration(Math.ceil(duration))
+      return
+    }
 
     const video = document.createElement('video')
 
@@ -52,12 +59,11 @@ export default function VideoSettingsPage() {
   }, [videoUrl])
 
   const handleSend = async () => {
-    if (isSubmitting || !videoFile || !user) return
+    if (isSubmitting || !user) return
 
     setIsSubmitting(true)
     try {
       const [, maxDuration] = clipLength.split("-").map(Number)
-      const videoId = crypto.randomUUID()
 
       const config = {
         language,
@@ -66,9 +72,25 @@ export default function VideoSettingsPage() {
         autoSchedule,
       }
 
-      router.push(
-        `/processing?videoId=${videoId}&config=${encodeURIComponent(JSON.stringify(config))}`
-      )
+      setProcessingConfig(config)
+
+      if (videoFile) {
+        const newVideoId = crypto.randomUUID()
+        router.push(
+          `/processing?videoId=${newVideoId}&config=${encodeURIComponent(JSON.stringify(config))}`
+        )
+        return
+      }
+
+      if (videoId) {
+        const started = await startIngestionFromUrl(videoId)
+        router.push(
+          `/processing?videoId=${started.video_id}&config=${encodeURIComponent(JSON.stringify(config))}`
+        )
+        return
+      }
+
+      toast.error("Nenhum vídeo selecionado")
     } catch (error) {
       console.error("Error:", error)
       toast.error(error instanceof Error ? error.message : "Erro ao processar")
@@ -77,9 +99,9 @@ export default function VideoSettingsPage() {
   }
 
   const getVideoTitle = () => {
-    if (videoFile) {
-      const name = videoFile.name
-      return name.length > 50 ? `${name.slice(0, 60)}...` : name
+    const title = videoTitle || (videoFile ? videoFile.name : null)
+    if (title) {
+      return title.length > 60 ? `${title.slice(0, 60)}...` : title
     }
     return "Vídeo"
   }
@@ -88,6 +110,11 @@ export default function VideoSettingsPage() {
     if (videoDuration === 0) return 0
     return Math.ceil(videoDuration / 60)
   }
+
+  const previewUrl = thumbnailUrl || videoUrl
+  const effectiveFileSize = fileSize ?? (videoFile ? videoFile.size : null)
+  const sizeLabel = effectiveFileSize ? `${(effectiveFileSize / (1024 * 1024)).toFixed(1)}MB` : null
+  const canPreviewVideo = Boolean(videoFile && videoUrl)
 
   return (
     <div className="w-full flex flex-col p-6 h-screen">
@@ -104,76 +131,94 @@ export default function VideoSettingsPage() {
         <div className="w-full max-w-xl space-y-8">
           <div className="bg-card border border-border rounded-xl p-4 flex gap-4 items-center">
             <div className="w-16 h-16 bg-black rounded-md overflow-hidden flex-shrink-0">
-              {videoUrl && <video src={videoUrl} className="w-full h-full object-cover" />}
+              {thumbnailUrl ? (
+                <img src={thumbnailUrl} className="w-full h-full object-cover" />
+              ) : canPreviewVideo ? (
+                <video src={videoUrl ?? undefined} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-muted" />
+              )}
             </div>
-            <div className="flex-1 flex items-center justify-start">
-              <h3 className="text-sm font-medium text-foreground line-clamp-2 text-center">
+            <div className="flex-1 flex flex-col items-start justify-start">
+              <h3 className="text-sm font-medium text-foreground line-clamp-2 text-start">
                 {getVideoTitle()}
               </h3>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <Select value={language} onValueChange={(value) => {
-              if (value) setLanguage(value)
-            }}>
-              <SelectTrigger className="flex items-center gap-2 w-full">
-                <div className="flex items-center gap-3">
-                  <HugeiconsIcon size={16} icon={Globe02Icon} />
-                  <span>
-                    {language === "pt-br" ? "Português (Brasil)" : language === "en" ? "English" : "Español"}
-                  </span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pt-br">Português (Brasil)</SelectItem>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="es">Español</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Linguagem do vídeo</Label>
+              <Select value={language} onValueChange={(value) => {
+                if (value) setLanguage(value)
+              }}>
+                <SelectTrigger className="flex items-center gap-2 w-full">
+                  <div className="flex items-center gap-3">
+                    <HugeiconsIcon size={16} icon={Globe02Icon} />
+                    <span>
+                      {language === "pt-br" ? "Português (Brasil)" : language === "en" ? "English" : "Español"}
+                    </span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pt-br">Português (Brasil)</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="es">Español</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select value={ratio} onValueChange={(value) => {
-              if (value) setRatio(value)
-            }}>
-              <SelectTrigger className="flex items-center gap-2 w-full">
-                <div className="flex items-center gap-3">
-                  <HugeiconsIcon size={16} icon={AspectRatioIcon} />
-                  <span>
-                    {ratio === "9:16" ? "Ratio 9:16" : ratio === "16:9" ? "Ratio 16:9" : "Ratio 1:1"}
-                  </span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="9:16">Ratio 9:16</SelectItem>
-                <SelectItem value="16:9">Ratio 16:9</SelectItem>
-                <SelectItem value="1:1">Ratio 1:1</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Ratio para gerar os clips</Label>
+              <Select value={ratio} onValueChange={(value) => {
+                if (value) setRatio(value)
+              }}>
+                <SelectTrigger className="flex items-center gap-2 w-full">
+                  <div className="flex items-center gap-3">
+                    <HugeiconsIcon size={16} icon={AspectRatioIcon} />
+                    <span>
+                      {ratio === "9:16" ? "Ratio 9:16" : ratio === "16:9" ? "Ratio 16:9" : "Ratio 1:1"}
+                    </span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="9:16">Ratio 9:16</SelectItem>
+                  <SelectItem value="16:9">Ratio 16:9</SelectItem>
+                  <SelectItem value="1:1">Ratio 1:1</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select value={clipLength} onValueChange={(value) => {
-              if (value) setClipLength(value)
-            }}>
-              <SelectTrigger className="flex items-center gap-2 w-full">
-                <div className="flex items-center gap-3">
-                  <HugeiconsIcon size={16} icon={Clock01Icon} />
-                  <span>
-                    {clipLength === "30-60" ? "30s-60s" : clipLength === "60-90" ? "60s-90s" : "90s-120s"}
-                  </span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30-60">30s-60s</SelectItem>
-                <SelectItem value="60-90">60s-90s</SelectItem>
-                <SelectItem value="90-120">90s-120s</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Duração média dos clips</Label>
+              <Select value={clipLength} onValueChange={(value) => {
+                if (value) setClipLength(value)
+              }}>
+                <SelectTrigger className="flex items-center gap-2 w-full">
+                  <div className="flex items-center gap-3">
+                    <HugeiconsIcon size={16} icon={Clock01Icon} />
+                    <span>
+                      {clipLength === "30-60" ? "30s-60s" : clipLength === "60-90" ? "60s-90s" : "90s-120s"}
+                    </span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30-60">30s-60s</SelectItem>
+                  <SelectItem value="60-90">60s-90s</SelectItem>
+                  <SelectItem value="90-120">90s-120s</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            <div className="border border-border rounded-md p-4 flex items-center justify-between bg-transparent">
-              <div className="flex items-center gap-3 text-sm text-foreground">
-                <HugeiconsIcon size={16} icon={Calendar01Icon} />
-                Auto Agendamento e post
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Auto agendamento (não implementado agora)</Label>
+              <div className="border border-border rounded-md p-4 flex items-center justify-between bg-transparent">
+                <div className="flex items-center gap-3 text-sm text-foreground">
+                  <HugeiconsIcon size={16} icon={Calendar01Icon} />
+                  Auto Agendamento e post
+                </div>
+                <Switch checked={autoSchedule} onCheckedChange={setAutoSchedule} />
               </div>
-              <Switch checked={autoSchedule} onCheckedChange={setAutoSchedule} />
             </div>
 
             <Button
@@ -181,7 +226,7 @@ export default function VideoSettingsPage() {
               disabled={isSubmitting}
               className="w-full bg-foreground text-background font-medium h-12 rounded-md hover:bg-foreground/90 transition-colors mt-4 disabled:opacity-50"
             >
-              {isSubmitting ? "Enviando..." : "Enviar"}
+              {isSubmitting ? <Spinner /> : "Enviar"}
             </Button>
 
             <div className="flex justify-end items-center gap-2">

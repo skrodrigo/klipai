@@ -177,6 +177,24 @@ CLOUDFLARE_R2_PUBLIC_URL = os.getenv('CLOUDFLARE_R2_PUBLIC_URL')
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+# Gemini Whisper transcript refinement (optional)
+GEMINI_REFINE_WHISPER_TRANSCRIPT = os.getenv('GEMINI_REFINE_WHISPER_TRANSCRIPT', 'true').lower() == 'true'
+GEMINI_REFINE_MODEL = os.getenv('GEMINI_REFINE_MODEL', 'gemini-2.5-flash-lite')
+GEMINI_REFINE_TEMPERATURE = float(os.getenv('GEMINI_REFINE_TEMPERATURE', '0.2'))
+GEMINI_REFINE_MAX_SEGMENTS = int(os.getenv('GEMINI_REFINE_MAX_SEGMENTS', '120'))
+
+# Whisper tuning (optional)
+WHISPER_MODEL = os.getenv('WHISPER_MODEL')
+WHISPER_WORD_TIMESTAMPS = os.getenv('WHISPER_WORD_TIMESTAMPS', 'true').lower() == 'true'
+WHISPER_BEAM_SIZE = int(os.getenv('WHISPER_BEAM_SIZE', '1'))
+WHISPER_BEST_OF = int(os.getenv('WHISPER_BEST_OF', '1'))
+WHISPER_FP16 = os.getenv('WHISPER_FP16', 'true').lower() == 'true'
+
+# Reframe tuning (optional)
+REFRAME_SAMPLE_EVERY_SECONDS = float(os.getenv('REFRAME_SAMPLE_EVERY_SECONDS', '1.0'))
+REFRAME_MAX_FACE_SAMPLES = int(os.getenv('REFRAME_MAX_FACE_SAMPLES', '240'))
+REFRAME_MIN_SAMPLES_TO_STOP = int(os.getenv('REFRAME_MIN_SAMPLES_TO_STOP', '90'))
+
 # Redis Cache Configuration
 REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
 
@@ -193,3 +211,26 @@ CACHES = {
 
 # Cache timeout: 30 days
 CACHE_TIMEOUT = 86400 * 30
+
+# OAuth Configuration
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+# OAuth Credentials
+TIKTOK_CLIENT_ID = os.getenv('TIKTOK_CLIENT_ID')
+TIKTOK_CLIENT_SECRET = os.getenv('TIKTOK_CLIENT_SECRET')
+
+INSTAGRAM_CLIENT_ID = os.getenv('INSTAGRAM_CLIENT_ID')
+INSTAGRAM_CLIENT_SECRET = os.getenv('INSTAGRAM_CLIENT_SECRET')
+
+YOUTUBE_CLIENT_ID = os.getenv('YOUTUBE_CLIENT_ID')
+YOUTUBE_CLIENT_SECRET = os.getenv('YOUTUBE_CLIENT_SECRET')
+
+FACEBOOK_CLIENT_ID = os.getenv('FACEBOOK_CLIENT_ID')
+FACEBOOK_CLIENT_SECRET = os.getenv('FACEBOOK_CLIENT_SECRET')
+
+LINKEDIN_CLIENT_ID = os.getenv('LINKEDIN_CLIENT_ID')
+LINKEDIN_CLIENT_SECRET = os.getenv('LINKEDIN_CLIENT_SECRET')
+
+TWITTER_CLIENT_ID = os.getenv('TWITTER_CLIENT_ID')
+TWITTER_CLIENT_SECRET = os.getenv('TWITTER_CLIENT_SECRET')

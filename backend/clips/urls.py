@@ -19,13 +19,15 @@ from .views.billing_views import list_plans, upgrade_plan, downgrade_plan, cance
 from .views.analytics_views import get_organization_stats, get_job_performance, get_failure_analysis, get_credit_usage, get_clip_performance
 from .views.template_views import list_templates, create_template, update_template, delete_template
 from .views.admin_dashboard_views import admin_dashboard, system_health, block_organization, unblock_organization
-from .views.upload_views import generate_upload_url, confirm_upload
+from .views.upload_views import generate_upload_url, start_ingestion_from_url, ingest_from_url, confirm_upload
 from .views.job_views import create_job
 
 
 urlpatterns = [
     # Upload
     path("videos/upload/generate-url/", generate_upload_url, name="generate-upload-url"),
+    path("videos/upload/from-url/", ingest_from_url, name="ingest-from-url"),
+    path("videos/upload/from-url/start/", start_ingestion_from_url, name="start-ingestion-from-url"),
     path("videos/upload/confirm/", confirm_upload, name="confirm-upload"),
     
     # Videos
