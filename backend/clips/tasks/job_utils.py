@@ -1,13 +1,12 @@
-"""
-Utilitários para atualizar status de jobs durante o processamento.
-Usa QuerySet.update() para evitar race conditions e overhead de banco de dados.
-"""
-
 import logging
-from django.utils import timezone
 from ..models import Job
 
 logger = logging.getLogger(__name__)
+
+
+def get_plan_tier(plan: str | None) -> str:
+    p = (plan or "").strip().lower()
+    return "business" if p == "business" else "starter"
 
 
 def update_job_status(
@@ -16,25 +15,8 @@ def update_job_status(
     progress: int = None,
     current_step: str = None
 ) -> bool:
-    """
-    Atualiza status do job de forma ATÔMICA e performática.
-    
-    Usa .update() para evitar:
-    - Race conditions (múltiplos workers atualizando simultaneamente)
-    - Overhead de carregar objeto inteiro na memória
-    - Sobrescrita de campos não intencionais
-    
-    Args:
-        video_id: UUID do vídeo
-        status: Novo status do job
-        progress: Progresso (0-100), opcional
-        current_step: Etapa atual, opcional
-    
-    Returns:
-        bool: True se job foi atualizado, False se não encontrado
-    """
+
     try:
-        # Prepara os campos que serão atualizados
         update_fields = {
             "status": status,
         }
@@ -45,8 +27,6 @@ def update_job_status(
         if current_step is not None:
             update_fields["current_step"] = current_step
 
-        # Executa UPDATE direto no banco (Atomic, 1 query SQL)
-        # Retorna número de linhas afetadas (0 se não achou, 1 se achou)
         affected = Job.objects.filter(video_id=video_id).update(**update_fields)
         
         if affected == 0:

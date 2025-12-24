@@ -1,21 +1,43 @@
 "use client"
 
-import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useRef, useState } from "react"
 
-import { useVideoStore } from "@/lib/store/video-store"
-import { Input } from "@/components/ui/input"
-import { HugeiconsIcon } from "@hugeicons/react"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Attachment01Icon, Cancel01FreeIcons } from "@hugeicons/core-free-icons"
+import { Input } from "@/components/ui/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useVideoStore } from "@/lib/store/video-store"
+import { cn } from "@/lib/utils"
+import { ingestVideoFromUrl } from "@/infra/videos/upload"
+import { Attachment01Icon, Cancel01FreeIcons, FacebookIcon, InstagramIcon, Linkedin01Icon, NewTwitterIcon, PinterestIcon, RedditIcon, TiktokIcon, TwitchIcon, VimeoIcon, YoutubeIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Spinner } from "@/components/ui/spinner"
+
+const SUPPORTED_PLATFORMS = [
+  { name: "YouTube", iconName: YoutubeIcon },
+  { name: "TikTok", iconName: TiktokIcon },
+  { name: "Instagram", iconName: InstagramIcon },
+  { name: "Twitter/X", iconName: NewTwitterIcon },
+  { name: "Facebook", iconName: FacebookIcon },
+  { name: "LinkedIn", iconName: Linkedin01Icon },
+  { name: "Twitch", iconName: TwitchIcon },
+  { name: "Reddit", iconName: RedditIcon },
+  { name: "Pinterest", iconName: PinterestIcon },
+  { name: "Vimeo", iconName: VimeoIcon },
+]
 
 export default function DashboardPage() {
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [sourceUrl, setSourceUrl] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { setVideoFile } = useVideoStore()
+  const { setVideoFile, setVideoFromUrl } = useVideoStore()
   const router = useRouter()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,16 +72,34 @@ export default function DashboardPage() {
   }
 
   const handleContinue = async () => {
-    if (!files.length || isSubmitting) {
+    if (isSubmitting) {
       return
     }
 
     setIsSubmitting(true)
     try {
       const file = files[0]
+      const trimmedUrl = sourceUrl.trim()
+
       if (file) {
         setVideoFile(file)
         router.push("/video-settings")
+        return
+      }
+
+      if (trimmedUrl) {
+        const resp = await ingestVideoFromUrl(trimmedUrl, "url")
+        setVideoFromUrl({
+          videoId: resp.video_id,
+          title: resp.title,
+          thumbnailUrl: resp.thumbnail_url,
+          duration: resp.duration,
+          fileSize: resp.file_size,
+          taskId: resp.task_id,
+          sourceUrl: trimmedUrl,
+        })
+        router.push("/video-settings")
+        return
       }
     } finally {
       setIsSubmitting(false)
@@ -105,6 +145,7 @@ export default function DashboardPage() {
 
         <div className="space-y-4 flex gap-2">
 
+
           <div
             className={cn(
               "relative rounded-md transition-all flex-1  bg-card",
@@ -132,16 +173,19 @@ export default function DashboardPage() {
               <Input
                 placeholder="Paste link or drag your video here"
                 className="flex-1 focus-visible:ring-0 h-12 focus-visible:ring-offset-0 placeholder:text-muted-foreground !bg-transparent"
+                value={sourceUrl}
+                onChange={(e) => setSourceUrl(e.target.value)}
               />
             </div>
           </div>
 
+
           <Button
             className="rounded-md h-12 font-semibold"
-            disabled={!files.length || isSubmitting}
+            disabled={(!files.length && !sourceUrl.trim()) || isSubmitting}
             onClick={handleContinue}
           >
-            {isSubmitting ? "Generating clips..." : "Continue"}
+            {isSubmitting ? <Spinner /> : "Continue"}
           </Button>
         </div>
       </div>

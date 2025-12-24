@@ -29,7 +29,7 @@ class Clip(models.Model):
     file_size = models.BigIntegerField(null=True, blank=True)  # Tamanho em bytes
 
     # Scoring e análise
-    engagement_score = models.IntegerField(null=True, blank=True)  # 0-100
+    engagement_score = models.FloatField(null=True, blank=True)  # 0-10
     confidence_score = models.IntegerField(null=True, blank=True)  # 0-100
     
     # Transcrição e thumbnail
@@ -44,7 +44,7 @@ class Clip(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-engagement_score", "-created_at"]
         indexes = [
             models.Index(fields=["video_id", "-created_at"]),
             models.Index(fields=["clip_id"]),

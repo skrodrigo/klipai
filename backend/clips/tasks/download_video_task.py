@@ -2,142 +2,257 @@ import logging
 import os
 import subprocess
 import json
+import shutil
 from celery import shared_task
 from django.conf import settings
 
 from ..models import Video, Organization
 from ..services.storage_service import R2StorageService
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=5)
 def download_video_task(self, video_id: str) -> dict:
-    """
-    Baixa vídeo do R2 ou da fonte externa (stream).
+    video = None
+    temp_dir = None
+    lock_path = None
     
-    Valida:
-    - duração
-    - tamanho
-    - codec
-    - resolução
-    """
     try:
-        # Procura vídeo por video_id (UUID)
         video = Video.objects.get(video_id=video_id)
         
-        # Obtém organização
-        from ..models import Organization
         org = Organization.objects.get(organization_id=video.organization_id)
         
         video.status = "downloading"
         video.current_step = "downloading"
         video.save()
         
-        # Atualiza job status
         update_job_status(str(video.video_id), "downloading", progress=10, current_step="downloading")
 
         output_dir = os.path.join(settings.MEDIA_ROOT, f"videos/{video.video_id}")
         os.makedirs(output_dir, exist_ok=True)
+        temp_dir = output_dir
 
-        # Se vídeo já está em R2, faz download
+        lock_path = os.path.join(output_dir, ".download.lock")
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(lock_fd, str(os.getpid()).encode("utf-8"))
+            os.close(lock_fd)
+        except FileExistsError:
+            logger.info(f"Download já em andamento para video_id={video.video_id}. Ignorando.")
+            return {"video_id": str(video.video_id), "status": "downloading", "detail": "already_running"}
+
+        storage = R2StorageService()
+        local_video_path = os.path.join(output_dir, "video_original.mp4")
+
         if video.storage_path:
-            storage = R2StorageService()
-            local_path = os.path.join(output_dir, "video_original.mp4")
-            # O storage_path é relativo ao bucket, então pode ser usado diretamente
-            storage.download_file(video.storage_path, local_path)
-            video_path = local_path
-        # Se é fonte externa (YouTube, TikTok, etc)
-        elif video.source_url:
-            video_path = _download_from_source(video.source_url, output_dir)
-        else:
-            raise Exception("Nenhuma fonte de vídeo disponível")
+            logger.info(f"Baixando vídeo do R2: {video.storage_path}")
+            storage.download_file(video.storage_path, local_video_path)
+            video_path = local_video_path
 
-        # Valida vídeo
+        elif video.source_url:
+            logger.info(f"Baixando vídeo de URL externa: {video.source_url} (tipo: {video.source_type})")
+
+            downloaded = _download_from_source_url(
+                source_url=video.source_url,
+                output_dir=output_dir,
+            )
+            video_path = downloaded["video_path"]
+            info = downloaded.get("info") or {}
+
+            if video_path != local_video_path:
+                if os.path.exists(local_video_path):
+                    os.remove(local_video_path)
+                shutil.move(video_path, local_video_path)
+                video_path = local_video_path
+
+            original_filename = _guess_original_filename(info, fallback="video_original.mp4")
+            video.original_filename = original_filename
+
+            if not video.title:
+                video.title = _guess_title_from_ydl_info(info, fallback=f"Video from {video.source_type or 'url'}")
+        else:
+            raise Exception("Nenhuma fonte de vídeo disponível (storage_path ou source_url)")
+
+        logger.info(f"Validando vídeo: {video_path}")
         duration, resolution, codec = _validate_video(video_path)
 
-        # Atualiza vídeo com metadados
         video.duration = duration
         video.resolution = resolution
         video.file_size = os.path.getsize(video_path)
         video.last_successful_step = "downloading"
+
         video.save()
         
-        logger.info(f"Download concluído para video_id={video.video_id}")
+        logger.info(f"Download concluído para video_id={video.video_id} | "
+                   f"Duração: {duration}s | Resolução: {resolution} | Codec: {codec}")
         
-        # Dispara próxima task (extract_thumbnail)
         from .extract_thumbnail_task import extract_thumbnail_task
         logger.info(f"Disparando extract_thumbnail_task para video_id={video.video_id}")
         task_result = extract_thumbnail_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.normalize.{org.plan}",
+            queue=f"video.normalize.{get_plan_tier(org.plan)}",
         )
         logger.info(f"extract_thumbnail_task disparada com task_id={task_result.id}")
 
         return {
             "video_id": str(video.video_id),
-            "status": "normalizing",
+            "status": "downloading",
             "duration": duration,
             "resolution": resolution,
             "file_size": video.file_size,
+            "codec": codec,
         }
 
     except Video.DoesNotExist:
+        logger.error(f"Vídeo não encontrado: {video_id}")
         return {"error": "Video not found", "status": "failed"}
+        
     except Exception as e:
-        video.status = "failed"
-        video.current_step = "downloading"
-        video.error_code = "DOWNLOAD_ERROR"
-        video.error_message = str(e)
-        video.retry_count += 1
-        video.save()
+        logger.error(f"Erro ao baixar vídeo {video_id}: {str(e)}", exc_info=True)
+        
+        if video:
+            video.status = "failed"
+            video.current_step = "downloading"
+            video.error_code = _get_error_code(str(e))
+            video.error_message = str(e)
+            video.retry_count += 1
+            video.save()
 
-        # Retry com backoff exponencial
-        if self.request.retries < self.max_retries:
-            raise self.retry(exc=e, countdown=2 ** self.request.retries)
+            if self.request.retries < self.max_retries:
+                countdown = 2 ** self.request.retries
+                logger.warning(f"Retentando download em {countdown}s (tentativa {self.request.retries + 1}/{self.max_retries})")
+                raise self.retry(exc=e, countdown=countdown)
+
+        if temp_dir:
+            _cleanup_temp_download_files(temp_dir)
+
+        if lock_path and os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+            except Exception:
+                pass
 
         return {"error": str(e), "status": "failed"}
 
+    finally:
+        if lock_path and os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+            except Exception:
+                pass
 
-def _download_from_source(source_url: str, output_dir: str) -> str:
+
+def _download_from_source_url(source_url: str, output_dir: str) -> dict:
     try:
         import yt_dlp
     except ImportError:
         raise Exception("yt-dlp não está instalado. Adicione à requirements.txt")
 
-    output_template = os.path.join(output_dir, "video_download")
+    tmp_subdir = os.path.join(output_dir, "_yt_dlp")
+    if os.path.isdir(tmp_subdir):
+        try:
+            shutil.rmtree(tmp_subdir, ignore_errors=True)
+        except Exception:
+            pass
+    os.makedirs(tmp_subdir, exist_ok=True)
+    output_template = os.path.join(tmp_subdir, "download.%(ext)s")
+
+    proxy_url = os.getenv("PROXY_URL")
 
     ydl_opts = {
-        "format": "bestvideo+bestaudio/best",
+        "format": "bv*[ext=mp4][vcodec^=avc1]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
         "merge_output_format": "mp4",
-        "outtmpl": f"{output_template}.%(ext)s",
-        "quiet": False,
-        "no_warnings": False,
-        "socket_timeout": 30,
+        "outtmpl": output_template,
         "noplaylist": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "continuedl": False,
+        "nopart": True,
+        "keepvideo": True,
+        "consoletitle": False,
+        "quiet": True,
+        "no_warnings": True,
     }
 
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+
     try:
+        logger.info(f"Iniciando download via yt-dlp: {source_url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([source_url])
+            info = ydl.extract_info(source_url, download=True)
+            logger.info(f"yt-dlp ok: {info.get('title', 'Unknown')}")
+
+    except yt_dlp.utils.DownloadError as e:
+        raise Exception(_map_yt_dlp_error_to_message(str(e), source_url))
     except Exception as e:
-        raise Exception(f"Falha no download yt-dlp: {e}")
+        raise Exception(f"Falha no download yt-dlp: {str(e)}")
 
-    expected_file = f"{output_template}.mp4"
-    if not os.path.exists(expected_file):
-        files = [f for f in os.listdir(output_dir) if f.startswith("video_download")]
-        if not files:
-            raise Exception("Arquivo de vídeo não encontrado após download")
-        expected_file = os.path.join(output_dir, files[0])
+    final_path = _find_downloaded_media_file(tmp_subdir)
+    if not final_path:
+        raise Exception("Arquivo de vídeo não encontrado após download")
 
-    final_path = os.path.join(output_dir, "video_original.mp4")
-    if expected_file != final_path:
-        if os.path.exists(final_path):
-            os.remove(final_path)
-        os.rename(expected_file, final_path)
+    return {"video_path": final_path, "info": info}
 
-    return final_path
+
+def _find_downloaded_media_file(download_dir: str) -> str | None:
+    try:
+        candidates = []
+        for name in os.listdir(download_dir):
+            p = os.path.join(download_dir, name)
+            if os.path.isdir(p):
+                continue
+            lower = name.lower()
+            if lower.endswith((".mp4", ".mkv", ".mov", ".webm")):
+                candidates.append(p)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda p: os.path.getsize(p), reverse=True)
+        return candidates[0]
+    except FileNotFoundError:
+        return None
+
+
+def _map_yt_dlp_error_to_message(error_msg: str, source_url: str) -> str:
+    msg = (error_msg or "").lower()
+
+    if "private" in msg or "login" in msg or "sign in" in msg:
+        return f"Vídeo privado, requer login, ou não acessível: {source_url}"
+    if "not available" in msg or "404" in msg or "removed" in msg:
+        return f"Vídeo não disponível ou foi removido: {source_url}"
+    if "geo" in msg or "not available in your country" in msg:
+        return "Vídeo bloqueado por localização geográfica"
+    if "proxy" in msg:
+        return "Erro relacionado a proxy"
+    return f"Erro ao baixar vídeo via yt-dlp: {error_msg}"
+
+
+def _guess_title_from_ydl_info(info: dict, fallback: str) -> str:
+    title = (info or {}).get("title")
+    if title and isinstance(title, str):
+        return title[:255]
+    return fallback[:255]
+
+
+def _guess_original_filename(info: dict, fallback: str) -> str:
+    ext = (info or {}).get("ext")
+    if ext and isinstance(ext, str):
+        safe_ext = ext.lower()
+        if safe_ext in ("mp4", "mkv", "mov", "webm"):
+            return f"video_original.{safe_ext}"
+    return fallback
+
+
+def _cleanup_temp_download_files(output_dir: str) -> None:
+    tmp_subdir = os.path.join(output_dir, "_yt_dlp")
+    if os.path.isdir(tmp_subdir):
+        try:
+            shutil.rmtree(tmp_subdir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def _validate_video(video_path: str) -> tuple:
@@ -182,6 +297,7 @@ def _validate_video(video_path: str) -> tuple:
         if width < 240 or height < 240:
             raise Exception(f"Resolução muito baixa ({resolution}, mínimo 240p)")
 
+        logger.info(f"Vídeo validado: {resolution} | {codec} | {duration}s")
         return duration, resolution, codec
 
     except subprocess.TimeoutExpired:
@@ -190,3 +306,31 @@ def _validate_video(video_path: str) -> tuple:
         raise Exception(f"Erro ao validar vídeo: {e.stderr or e}")
     except Exception as e:
         raise Exception(f"Erro ao extrair metadados: {e}")
+
+
+def _get_error_code(error_message: str) -> str:
+    """
+    Mapeia mensagem de erro para código de erro.
+    
+    Usado para categorizar erros e facilitar debugging.
+    """
+    error_lower = error_message.lower()
+    
+    if "private" in error_lower or "not accessible" in error_lower:
+        return "VIDEO_PRIVATE"
+    elif "not available" in error_lower or "removed" in error_lower:
+        return "VIDEO_NOT_FOUND"
+    elif "geo" in error_lower or "blocked" in error_lower:
+        return "GEO_BLOCKED"
+    elif "proxy" in error_lower:
+        return "PROXY_ERROR"
+    elif "timeout" in error_lower or "socket" in error_lower:
+        return "NETWORK_TIMEOUT"
+    elif "too short" in error_lower or "too long" in error_lower:
+        return "INVALID_DURATION"
+    elif "resolution" in error_lower or "codec" in error_lower:
+        return "INVALID_FORMAT"
+    elif "upload" in error_lower or "r2" in error_lower:
+        return "STORAGE_ERROR"
+    else:
+        return "DOWNLOAD_ERROR"

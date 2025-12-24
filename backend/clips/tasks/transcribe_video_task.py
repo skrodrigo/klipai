@@ -4,12 +4,15 @@ import json
 import subprocess
 from celery import shared_task
 from django.conf import settings
+import google.generativeai as genai
 
 from ..models import Video, Transcript, Organization
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 from ..services.storage_service import R2StorageService
 
 logger = logging.getLogger(__name__)
+
+_gemini_configured = False
 
 
 @shared_task(bind=True, max_retries=3)
@@ -35,6 +38,14 @@ def transcribe_video_task(self, video_id: str) -> dict:
         audio_path = _extract_audio_with_ffmpeg(video_path, video_dir)
 
         transcript_data = _transcribe_with_whisper(audio_path)
+
+        # Opcional: pós-processamento com Gemini para corrigir gírias/jargões/metáforas.
+        # Mantém timestamps (start/end) e word-timestamps; altera apenas os textos.
+        if bool(getattr(settings, "GEMINI_REFINE_WHISPER_TRANSCRIPT", False)):
+            try:
+                transcript_data = _refine_transcript_with_gemini(transcript_data)
+            except Exception as e:
+                logger.warning(f"[transcribe] Gemini refine falhou; seguindo com Whisper original: {e}")
 
         json_path = os.path.join(video_dir, "transcript.json")
         with open(json_path, "w", encoding="utf-8") as f:
@@ -74,7 +85,7 @@ def transcribe_video_task(self, video_id: str) -> dict:
         from .analyze_semantic_task import analyze_semantic_task
         analyze_semantic_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.analyze.{org.plan}",
+            queue=f"video.analyze.{get_plan_tier(org.plan)}",
         )
 
         return {
@@ -107,16 +118,29 @@ def transcribe_video_task(self, video_id: str) -> dict:
 def _extract_audio_with_ffmpeg(video_path: str, output_dir: str) -> str:
     audio_path = os.path.join(output_dir, "audio_temp.wav")
     ffmpeg_path = getattr(settings, "FFMPEG_PATH", "ffmpeg")
+    max_seconds = getattr(settings, "WHISPER_MAX_AUDIO_SECONDS", None)
     
     cmd = [
         ffmpeg_path, "-y",
+        "-hide_banner",
+        "-loglevel", "error",
         "-i", video_path,
+        # Seleciona apenas 1 stream de áudio (se existir). Evita pegar streams estranhas/corrompidas.
+        "-map", "0:a:0?",
         "-vn",
+        # Tenta ignorar erros de decode em mídias com áudio quebrado.
+        "-err_detect", "ignore_err",
+        "-fflags", "+discardcorrupt",
         "-acodec", "pcm_s16le",
         "-ar", "16000",
         "-ac", "1",
         audio_path
     ]
+
+    if isinstance(max_seconds, (int, float)) and max_seconds and max_seconds > 0:
+        # Coloca -t antes do output para limitar o processamento.
+        cmd.insert(-1, str(float(max_seconds)))
+        cmd.insert(-1, "-t")
 
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -132,7 +156,7 @@ def _transcribe_with_whisper(audio_path: str) -> dict:
     except ImportError:
         raise Exception("Instale: pip install openai-whisper torch")
 
-    model_size = getattr(settings, "WHISPER_MODEL", "small")
+    model_size = getattr(settings, "WHISPER_MODEL")
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -140,9 +164,19 @@ def _transcribe_with_whisper(audio_path: str) -> dict:
     
     try:
         model = whisper.load_model(model_size, device=device)
-        
-        result = model.transcribe(audio_path, word_timestamps=True)
-        
+
+        whisper_word_timestamps = bool(getattr(settings, "WHISPER_WORD_TIMESTAMPS", True))
+
+        use_fp16 = bool(getattr(settings, "WHISPER_FP16", True)) if device == "cuda" else False
+
+        result = model.transcribe(
+            audio_path,
+            word_timestamps=whisper_word_timestamps,
+            beam_size=int(getattr(settings, "WHISPER_BEAM_SIZE", 1)),
+            best_of=int(getattr(settings, "WHISPER_BEST_OF", 1)),
+            fp16=use_fp16,
+        )
+
     except Exception as e:
         if device == "cuda":
             torch.cuda.empty_cache()
@@ -181,6 +215,137 @@ def _transcribe_with_whisper(audio_path: str) -> dict:
         "segments": structured_segments,
         "language": language,
         "confidence_score": 95
+    }
+
+
+def _configure_gemini() -> None:
+    global _gemini_configured
+    if _gemini_configured:
+        return
+
+    api_key = getattr(settings, "GEMINI_API_KEY", None)
+    if not api_key:
+        raise Exception("GEMINI_API_KEY não configurada")
+
+    genai.configure(api_key=api_key)
+    _gemini_configured = True
+
+
+def _refine_transcript_with_gemini(transcript_data: dict) -> dict:
+    _configure_gemini()
+
+    segments = transcript_data.get("segments") or []
+    language = (transcript_data.get("language") or "").lower()
+
+    max_segments = int(getattr(settings, "GEMINI_REFINE_MAX_SEGMENTS", 120) or 120)
+    segments_slice = segments[:max_segments]
+
+    input_segments = []
+    for i, seg in enumerate(segments_slice):
+        input_segments.append(
+            {
+                "i": i,
+                "start": seg.get("start"),
+                "end": seg.get("end"),
+                "text": seg.get("text", ""),
+            }
+        )
+
+    response_schema = {
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string"},
+            "language": {"type": "string"},
+            "segments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "i": {"type": "integer"},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["i", "text"],
+                },
+            },
+        },
+        "required": ["domain", "language", "segments"],
+    }
+
+    base_prompt_pt = """
+Você é um revisor de transcrições expert (Português).
+
+Objetivo:
+- Primeiro inferir o CONTEXTO/DOMÍNIO da conversa (ex: negócios, saúde, estudos, espaço, medicina, produtividade, programação, marketing, finanças, fitness, etc.).
+- Em seguida, corrigir termos que o Whisper errou por causa de gírias, jargões, palavreado, metáforas ou nomes próprios.
+
+Regras críticas:
+1) NÃO altere timestamps. Eles já estão corretos. Você só pode reescrever o campo "text".
+2) Preserve o sentido original e o tom. Não censure palavrões; apenas corrija grafia/termos.
+3) Seja conservador: se não tiver certeza da correção, mantenha o original.
+4) Não invente conteúdo que não foi falado.
+5) Retorne SOMENTE JSON conforme o schema.
+
+Entrada: lista de segmentos com índice i e seus textos.
+Saída: para cada i, retorne "text" revisado.
+"""
+
+    base_prompt_en = """
+You are an expert transcript editor.
+
+Goal:
+- First infer the conversation domain/context (business, health, studies, space, medicine, productivity, programming, etc.).
+- Then fix misrecognized words caused by slang, jargon, metaphors, or proper nouns.
+
+Critical rules:
+1) Do NOT change timestamps. Only rewrite the "text" fields.
+2) Preserve meaning and tone. Do not censor.
+3) Be conservative: if unsure, keep the original.
+4) Do not invent content.
+5) Return ONLY JSON matching the schema.
+"""
+
+    prompt = base_prompt_pt if language.startswith("pt") else base_prompt_en
+    payload = {
+        "segments": input_segments,
+    }
+
+    model_name = getattr(settings, "GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
+    model = genai.GenerativeModel(model_name)
+    response = model.generate_content(
+        f"{prompt}\n\nSEGMENTS JSON:\n{json.dumps(payload, ensure_ascii=False)}",
+        generation_config=genai.types.GenerationConfig(
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            temperature=float(getattr(settings, "GEMINI_REFINE_TEMPERATURE", 0.2) or 0.2),
+        ),
+    )
+
+    refined = json.loads(response.text or "{}")
+    refined_segments = refined.get("segments") or []
+    by_i = {int(s.get("i")): (s.get("text") or "") for s in refined_segments if s.get("i") is not None}
+
+    # Aplica apenas nos textos (mantendo start/end/words intocados)
+    out_segments = list(segments)
+    for i in range(min(len(segments_slice), len(out_segments))):
+        new_text = by_i.get(i)
+        if isinstance(new_text, str) and new_text.strip():
+            out_segments[i] = {
+                **out_segments[i],
+                "text": new_text.strip(),
+            }
+
+    full_text = " ".join([(s.get("text") or "").strip() for s in out_segments]).strip()
+    return {
+        **transcript_data,
+        "segments": out_segments,
+        "full_text": full_text,
+        "refine_meta": {
+            "provider": "gemini",
+            "model": model_name,
+            "domain": refined.get("domain"),
+            "language": refined.get("language") or transcript_data.get("language"),
+            "segments_refined": len(out_segments[:max_segments]),
+        },
     }
 
 

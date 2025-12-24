@@ -31,12 +31,15 @@ def clip_scoring_task(self, clip_id: str, video_id: str):
                     break
         
         if matched_data:
-            clip.engagement_score = int(matched_data.get("score", 0))
+            raw_score = float(matched_data.get("score", 0) or 0)
+            # `selected_clips[].score` é 0-100 (compat), mas aceitamos 0-10 também.
+            score_0_10 = raw_score / 10.0 if raw_score > 10 else raw_score
+            clip.engagement_score = round(float(score_0_10), 2)
             clip.title = matched_data.get("title") or clip.title
             logger.info(f"Scores recuperados da IA: {clip.engagement_score}")
         else:
             logger.warning("Dados de IA não encontrados para este clip. Usando fallback.")
-            clip.engagement_score = 70
+            clip.engagement_score = 7.0
 
         storage = R2StorageService()
         

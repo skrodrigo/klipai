@@ -14,7 +14,7 @@ def list_video_clips(video_id: str) -> List[Dict[str, Any]]:
     Returns:
         Lista de dicts com clip_id, title, video_url, thumbnail_url, transcript, etc.
     """
-    clips_qs = Clip.objects.filter(video_id=video_id).order_by("-created_at")
+    clips_qs = Clip.objects.filter(video_id=video_id).order_by("-engagement_score", "-created_at")
     storage_service = R2StorageService()
     
     clips_data = []

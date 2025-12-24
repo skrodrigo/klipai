@@ -1,17 +1,18 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { getJobProgress, getJobStatus, createJob, type CreateJobPayload } from "@/infra/videos/videos"
+import { Progress } from "@/components/ui/progress"
+import { getSession } from "@/infra/auth/auth"
 import { uploadVideo } from "@/infra/videos/upload"
+import { createJob, getJobProgress, getVideoDetails, type CreateJobPayload } from "@/infra/videos/videos"
 import { useVideoStore } from "@/lib/store/video-store"
 import { cn } from "@/lib/utils"
+import { AlertSquareIcon, CancelSquareIcon, Loading03Icon, LogoutSquare02Icon, SquareIcon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { AlertSquareIcon, SquareIcon, LogoutSquare02Icon, Tick02Icon, Loading03Icon, CancelSquareIcon, FlowSquareIcon } from "@hugeicons/core-free-icons"
-import { toast } from "sonner"
-import { getSession } from "@/infra/auth/auth"
 import { useQuery } from "@tanstack/react-query"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react"
+import { toast } from "sonner"
 
 type ProcessingStatus = "ingestion" | "queued" | "downloading" | "normalizing" | "transcribing" | "analyzing" | "embedding" | "selecting" | "reframing" | "rendering" | "clipping" | "captioning" | "done" | "failed"
 
@@ -30,10 +31,22 @@ export default function ProcessingPage() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [videoId, setVideoId] = useState<string | null>(null)
   const [config, setConfig] = useState<any>(null)
-  const { videoFile, videoUrl } = useVideoStore()
-  const videoTitle = videoFile?.name || "Seu vídeo"
+  const [didInitFromStore, setDidInitFromStore] = useState(false)
+  const {
+    videoFile,
+    videoUrl,
+    videoTitle: storedTitle,
+    thumbnailUrl: storedThumb,
+    processing,
+    setVideoDetails,
+    setProcessingConfig,
+    setProcessingJobId,
+    setProcessingProgress,
+    setProcessingStatus,
+  } = useVideoStore()
+  const [videoTitle, setVideoTitle] = useState<string>(storedTitle || videoFile?.name || "Seu vídeo")
   const [error, setError] = useState<string | null>(null)
-  const [thumbnail, setThumbnail] = useState<string | null>(null)
+  const [thumbnail, setThumbnail] = useState<string | null>(storedThumb)
   const [isCreatingJob, setIsCreatingJob] = useState(false)
   const [isUploadComplete, setIsUploadComplete] = useState(false)
   const [isUploading, setIsUploading] = useState(true)
@@ -44,22 +57,73 @@ export default function ProcessingPage() {
   })
 
   useEffect(() => {
-    const vid = searchParams.get("videoId");
-    const configStr = searchParams.get("config");
+    const vid = searchParams.get("videoId")
+    const configStr = searchParams.get("config")
 
-    if (vid) {
-      setVideoId(vid);
+    // Hydrate once from persisted store (avoids render loops)
+    if (!didInitFromStore) {
+      if (processing?.jobId && !jobId) {
+        setJobId(processing.jobId)
+      }
+
+      if (typeof processing?.progress === 'number' && processing.progress !== progress) {
+        setProgress(processing.progress)
+      }
+      if (processing?.status && processing.status !== status) {
+        setStatus(processing.status as ProcessingStatus)
+      }
+
+      if (processing?.config && !config) {
+        setConfig(processing.config)
+      }
+
+      setDidInitFromStore(true)
+    }
+
+    if (vid && vid !== videoId) {
+      setVideoId(vid)
     }
     if (configStr) {
       try {
-        setConfig(JSON.parse(decodeURIComponent(configStr)));
+        const parsed = JSON.parse(decodeURIComponent(configStr))
+        if (!config) {
+          setConfig(parsed)
+        }
+        setProcessingConfig(parsed)
       } catch (err) {
-        console.error("Erro ao parsear config:", err);
+        console.error("Erro ao parsear config:", err)
       }
     }
-  }, [searchParams]);
+  }, [searchParams, didInitFromStore, processing, jobId, config, progress, status, videoId, setProcessingConfig])
 
-  // Step 1: Faz upload do vídeo
+  useEffect(() => {
+    if (!videoId || !user) {
+      return
+    }
+
+    if (videoFile) {
+      setVideoTitle(videoFile.name)
+      return
+    }
+
+    const fetchDetails = async () => {
+      try {
+        const details = await getVideoDetails(videoId, user.organization_id || "")
+        if (details?.title) {
+          setVideoTitle(details.title)
+          setVideoDetails({ videoTitle: details.title })
+        }
+        if (details?.thumbnail_url) {
+          setThumbnail(details.thumbnail_url)
+          setVideoDetails({ thumbnailUrl: details.thumbnail_url })
+        }
+      } catch (e) {
+      }
+    }
+
+    fetchDetails()
+  }, [videoId, user, videoFile, setVideoDetails])
+
   useEffect(() => {
     if (!videoId || !videoFile || isUploadComplete) {
       return;
@@ -80,7 +144,14 @@ export default function ProcessingPage() {
     performUpload();
   }, [videoId, videoFile, isUploadComplete]);
 
-  // Step 2: Cria o job após upload bem-sucedido
+  useEffect(() => {
+    if (!videoId) return
+    if (videoFile) return
+    if (isUploadComplete) return
+    setIsUploading(false)
+    setIsUploadComplete(true)
+  }, [videoId, videoFile, isUploadComplete])
+
   useEffect(() => {
     if (!videoId || !config || !user || isCreatingJob || jobId || !isUploadComplete) {
       return;
@@ -89,6 +160,22 @@ export default function ProcessingPage() {
     const createJobAfterUpload = async () => {
       setIsCreatingJob(true);
       try {
+        if (!videoFile) {
+          const { startIngestionFromUrl } = await import("@/infra/videos/upload")
+          const started = await startIngestionFromUrl(videoId, {
+            language: config.language,
+            ratio: config.ratio,
+            maxDuration: config.maxDuration,
+            autoSchedule: config.autoSchedule,
+          })
+
+          if (started.job_id) {
+            setJobId(started.job_id)
+            setProcessingJobId(started.job_id)
+          }
+          return
+        }
+
         const jobPayload: CreateJobPayload = {
           video_id: videoId,
           organization_id: user.organization_id || "",
@@ -97,13 +184,13 @@ export default function ProcessingPage() {
             language: config.language,
             target_ratios: [config.ratio],
             max_clip_duration: config.maxDuration,
-            num_clips: 5,
             auto_schedule: config.autoSchedule,
           },
         };
 
         const jobResponse = await createJob(jobPayload);
         setJobId(jobResponse.job_id);
+        setProcessingJobId(jobResponse.job_id)
         console.log("Job criado com sucesso:", jobResponse.job_id);
       } catch (err) {
         console.error("Erro ao criar job:", err);
@@ -143,12 +230,16 @@ export default function ProcessingPage() {
           if (status !== "done" && status !== "failed") {
             setStatus(data.status);
             setProgress(data.progress);
+            setProcessingStatus(data.status)
+            setProcessingProgress(data.progress)
           }
 
           if (data.status === "done") {
             isClosing = true;
             setStatus("done");
             setProgress(100);
+            setProcessingStatus("done")
+            setProcessingProgress(100)
             setTimeout(() => {
               eventSource.close();
               router.push("/dashboard/projects");
@@ -156,6 +247,7 @@ export default function ProcessingPage() {
           } else if (data.status === "failed") {
             isClosing = true;
             setStatus("failed");
+            setProcessingStatus("failed")
             setError(data.error_message || "O processamento falhou. Por favor, tente novamente.");
             eventSource.close();
           }
@@ -207,7 +299,6 @@ export default function ProcessingPage() {
   const getStageState = (stage: ProcessingStatus): 'completed' | 'active' | 'pending' | 'failed' => {
     const stageIndex = stages.indexOf(stage);
 
-    // Se upload não completou, todos os stages ficam pending
     if (!isUploadComplete) {
       return 'pending';
     }
@@ -233,6 +324,14 @@ export default function ProcessingPage() {
     return stages.indexOf(status);
   };
 
+  const getVideoTitle = () => {
+    const title = videoTitle || (videoFile ? videoFile.name : null)
+    if (title) {
+      return title.length > 60 ? `${title.slice(0, 60)}...` : title
+    }
+    return "Vídeo"
+  }
+
   return (
     <div className="w-full flex flex-col p-6 h-screen">
 
@@ -242,20 +341,15 @@ export default function ProcessingPage() {
             <div className="w-16 h-16 bg-black rounded-md overflow-hidden flex-shrink-0">
               {thumbnail ? (
                 <img src={thumbnail} alt="Video thumbnail" className="w-full h-full object-cover" />
-              ) : videoUrl ? (
+              ) : videoUrl && videoFile ? (
                 <video src={videoUrl} className="w-full h-full object-cover" />
               ) : null}
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-foreground mb-3 line-clamp-2">
-                {videoTitle.toUpperCase()}
+              <h3 className="text-sm text-start font-medium text-foreground mb-3 line-clamp-2">
+                {getVideoTitle()}
               </h3>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+              <Progress className="h-2" value={progress} />
               <div className="text-xs text-muted-foreground mt-2">{progress} %</div>
             </div>
           </div>

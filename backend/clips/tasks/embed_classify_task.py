@@ -7,7 +7,7 @@ import google.generativeai as genai
 
 from ..models import Video, Transcript, Organization
 from ..services.embedding_cache_service import EmbeddingCacheService
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ def embed_classify_task(self, video_id: str) -> dict:
         from .select_clips_task import select_clips_task
         select_clips_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.select.{org.plan}",
+            queue=f"video.select.{get_plan_tier(org.plan)}",
         )
 
         return {

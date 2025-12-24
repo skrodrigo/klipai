@@ -39,6 +39,25 @@ import { useQuery, useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { getSession } from "@/infra/auth/auth"
 
+function StatusWithDots({ label }: { label: string }) {
+  const [dots, setDots] = useState('.')
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '.' : prev + '.'))
+    }, 500)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <span className="text-primary">
+      {label}
+      <span className="ml-1">{dots}</span>
+    </span>
+  )
+}
+
 export default function ProjectsPage() {
   const router = useRouter()
   const [videos, setVideos] = useState<Video[]>([])
@@ -137,10 +156,21 @@ export default function ProjectsPage() {
   }
 
   const formatDuration = (seconds: number | undefined) => {
-    if (seconds === undefined) return "00:00";
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    if (seconds === undefined || seconds === null) return "00:00"
+    const totalSeconds = Math.max(0, Math.floor(seconds))
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const remainingSeconds = totalSeconds % 60
+
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, '0')}:${minutes
+        .toString()
+        .padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+    }
+
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds
+      .toString()
+      .padStart(2, '0')}`
   }
 
   const getStatusColor = (status: string) => {
@@ -224,16 +254,16 @@ export default function ProjectsPage() {
           </Empty>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="flex flex-wrap gap-6">
           {videos.map((video) => (
             <div
               key={video.video_id}
               onClick={() => router.push(`/clips/${video.video_id}`)}
-              className="group relative bg-card rounded-md overflow-hidden transition-colors cursor-pointer hover:border-primary/50"
+              className="group relative bg-card rounded-md overflow-hidden transition-colors cursor-pointer hover:border-primary/50 w-60 h-60"
             >
               <div className="bg-muted relative w-full aspect-video">
                 {video.thumbnail ? (
-                  <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
+                  <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover rounded-b-lg" />
                 ) : (
                   <div className="w-full h-full bg-muted" />
                 )}
@@ -278,32 +308,47 @@ export default function ProjectsPage() {
               <div className="p-4">
                 <div className="text-xs text-muted-foreground mb-1">{formatDate(video.created_at)}</div>
                 <h3 className="font-medium text-sm text-foreground mb-2 truncate">{video.title}</h3>
-                <div className="flex items-center justify-between mt-4">
-                  <span className={`text-xs ${getStatusColor(video.status)}`}>
-                    {getStatusLabel(video.status)}
-                  </span>
+                <div className="flex items-center justify-end mt-4">
+                  {((video.status as any) !== 'done') ? (
+                    <div className="mr-auto text-xs font-medium">
+                      <StatusWithDots label={getStatusLabel(video.status)} />
+                    </div>
+                  ) : null}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="text-muted-foreground hover:text-foreground transition-colors" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      >
                         <HugeiconsIcon icon={MoreHorizontalIcon} />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => getVideoDetailsFile(video.video_id)}>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          getVideoDetailsFile(video.video_id)
+                        }}
+                      >
                         <HugeiconsIcon icon={EyeIcon} className="h-4 w-4 mr-2" />
                         Ver detalhes
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => {
-                        setRenameVideoId(video.video_id)
-                        setRenameTitle(video.title)
-                        setRenameDialogOpen(true)
-                      }}>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRenameVideoId(video.video_id)
+                          setRenameTitle(video.title)
+                          setRenameDialogOpen(true)
+                        }}
+                      >
                         <HugeiconsIcon icon={Edit02Icon} className="h-4 w-4 mr-2" />
                         Renomear
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setDeleteVideoId(video.video_id)
                           setDeleteDialogOpen(true)
                         }}

@@ -5,7 +5,7 @@ from celery import shared_task
 from django.conf import settings
 
 from ..models import Video, Transcript, Organization
-from .job_utils import update_job_status
+from .job_utils import get_plan_tier, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def reframe_video_task(self, video_id: str) -> dict:
         from .clip_generation_task import clip_generation_task
         clip_generation_task.apply_async(
             args=[str(video.video_id)],
-            queue=f"video.clip.{org.plan}",
+            queue=f"video.clip.{get_plan_tier(org.plan)}",
         )
 
         return {
@@ -90,7 +90,14 @@ def _detect_smart_crop(video_path: str) -> dict:
 
     face_centers_x = []
     
-    stride = int(fps)
+    # Otimização: amostragem configurável (em segundos) + early-stop.
+    # Não reduz a qualidade do render final; apenas reduz custo da análise.
+    sample_every_seconds = float(getattr(settings, "REFRAME_SAMPLE_EVERY_SECONDS", 1.0) or 1.0)
+    max_samples = int(getattr(settings, "REFRAME_MAX_FACE_SAMPLES", 240) or 240)
+    min_samples_to_stop = int(getattr(settings, "REFRAME_MIN_SAMPLES_TO_STOP", 90) or 90)
+
+    effective_fps = fps if isinstance(fps, (int, float)) and fps and fps > 0 else 30.0
+    stride = max(1, int(round(effective_fps * sample_every_seconds)))
     
     with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.6) as face_detection:
         for i in range(0, total_frames, stride):
@@ -109,6 +116,14 @@ def _detect_smart_crop(video_path: str) -> dict:
                 
                 center_x = int((bboxC.xmin + bboxC.width / 2) * width)
                 face_centers_x.append(center_x)
+
+                # Early-stop: quando já temos amostras suficientes, não há ganho em continuar varrendo o vídeo todo.
+                if len(face_centers_x) >= max_samples:
+                    break
+
+            # Se já temos um mínimo de amostras (qualidade boa), podemos parar cedo.
+            if len(face_centers_x) >= min_samples_to_stop:
+                break
 
     cap.release()
 

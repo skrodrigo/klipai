@@ -74,16 +74,16 @@ def delete_clip(request, clip_id):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Soft delete
-        clip.is_deleted = True
-        clip.save()
-
-        # Opcionalmente, deleta arquivo do R2
         try:
             storage = R2StorageService()
-            storage.delete_file(clip.storage_path)
+            if clip.storage_path:
+                storage.delete_file(clip.storage_path)
+            if clip.thumbnail_storage_path:
+                storage.delete_file(clip.thumbnail_storage_path)
         except Exception as e:
             print(f"Aviso: Falha ao deletar arquivo do R2: {e}")
+
+        clip.delete()
 
         return Response(
             {

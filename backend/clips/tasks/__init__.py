@@ -10,8 +10,6 @@ from .clip_scoring_task import clip_scoring_task
 from .caption_clips_task import caption_clips_task
 from .clip_generation_task import clip_generation_task
 from .post_to_social_task import post_to_social_task
-from .renew_credits_task import renew_credits_task
-from .cleanup_old_data_task import cleanup_old_data_task
 
 __all__ = (
     "download_video_task",
@@ -26,6 +24,4 @@ __all__ = (
     "caption_clips_task",
     "clip_generation_task",
     "post_to_social_task",
-    "renew_credits_task",
-    "cleanup_old_data_task",
 )

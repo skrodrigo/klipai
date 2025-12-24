@@ -128,3 +128,24 @@ export type ListJobsResponse = {
   jobs: Job[]
   total: number
 }
+
+export interface GenerateUploadUrlResponse {
+  upload_url: string
+  video_id: string
+  key: string
+}
+
+export interface ConfirmUploadResponse {
+  video_id: string
+  status: string
+}
+
+export interface IngestFromUrlResponse {
+  video_id: string
+  status: string
+  title: string
+  duration: number | null
+  file_size: number | null
+  thumbnail_url: string | null
+  task_id: string | null
+}
