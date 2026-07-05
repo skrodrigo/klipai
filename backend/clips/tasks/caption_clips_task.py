@@ -37,11 +37,13 @@ def _safe_update_job_status(
     status: str,
     *,
     progress: Optional[int] = None,
-    current_step: Optional[str] = None
+    current_step: Optional[str] = None,
 ):
     """Wrapper seguro para update_job_status"""
     try:
-        update_job_status(video_id, status, progress=progress, current_step=current_step)
+        update_job_status(
+            video_id, status, progress=progress, current_step=current_step
+        )
     except Exception as e:
         logger.warning(f"[caption] update_job_status failed for {video_id}: {e}")
 
@@ -60,7 +62,7 @@ def _to_float(x, default: float = 0.0) -> float:
 def caption_clips_task(self, video_id: str) -> dict:
     """
     Gera legendas karaoke em formato ASS para cada clip selecionado
-    
+
     Fluxo:
     1. Valida vídeo e transcrição
     2. Para cada clip selecionado, gera arquivo .ass
@@ -68,14 +70,14 @@ def caption_clips_task(self, video_id: str) -> dict:
     4. Dispara próxima task (rendering)
     """
     video = None
-    
+
     try:
         logger.info(f"[caption] Iniciando para video_id={video_id}")
-        
+
         # Carrega vídeo e organização
         video = Video.objects.get(video_id=video_id)
         org = Organization.objects.get(organization_id=video.organization_id)
-        
+
         # Atualiza status
         video.status = "captioning"
         video.current_step = "captioning"
@@ -96,29 +98,33 @@ def caption_clips_task(self, video_id: str) -> dict:
 
         storage = R2StorageService()
         existing_caption_files = transcript.caption_files or []
-        kept_caption_files = [c for c in existing_caption_files if isinstance(c, dict) and str(c.get("kind") or "").lower() != "ass"]
+        kept_caption_files = [
+            c
+            for c in existing_caption_files
+            if isinstance(c, dict) and str(c.get("kind") or "").lower() != "ass"
+        ]
 
         caption_files: List[Dict[str, Any]] = []
         total_clips = max(1, len(selected_clips))
-        
+
         logger.info(f"[caption] Gerando legendas para {total_clips} clips")
-        
+
         for idx, clip in enumerate(selected_clips):
             # Calcula progress de forma segura (85-95%)
             progress_pct = 85 + int((idx / total_clips) * 10)
             progress_pct = int(max(85, min(progress_pct, 95)))
-            
+
             _safe_update_job_status(
                 str(video.video_id),
                 "captioning",
                 progress=progress_pct,
-                current_step=f"captioning_clip_{idx+1}/{total_clips}",
+                current_step=f"captioning_clip_{idx + 1}/{total_clips}",
             )
-            
+
             # Extrai timestamps do clip
             clip_start = _to_float(clip.get("start_time"), 0.0)
             clip_end = _to_float(clip.get("end_time"), 0.0)
-            
+
             if clip_end <= clip_start:
                 logger.warning(
                     f"[caption] Clip {idx} tem timestamps inválidos: "
@@ -129,7 +135,7 @@ def caption_clips_task(self, video_id: str) -> dict:
             # Gera arquivo ASS
             ass_filename = f"caption_{idx}.ass"
             ass_path = os.path.join(output_dir, ass_filename)
-            
+
             try:
                 _generate_karaoke_ass(
                     transcript=transcript,
@@ -145,7 +151,7 @@ def caption_clips_task(self, video_id: str) -> dict:
             if not os.path.exists(ass_path):
                 logger.warning(f"[caption] ASS não foi criado para clip {idx}")
                 continue
-                
+
             file_size = os.path.getsize(ass_path)
             if file_size <= 0:
                 logger.warning(f"[caption] ASS vazio para clip {idx}")
@@ -160,7 +166,9 @@ def caption_clips_task(self, video_id: str) -> dict:
                 f"{ass_filename} ({file_size} bytes)"
             )
 
-            clip_id = str(clip.get("clip_id") or clip.get("id") or clip.get("clipId") or idx)
+            clip_id = str(
+                clip.get("clip_id") or clip.get("id") or clip.get("clipId") or idx
+            )
             if not clip_id:
                 clip_id = str(idx)
 
@@ -173,18 +181,23 @@ def caption_clips_task(self, video_id: str) -> dict:
                     clip_id=str(clip_id),
                 )
             except Exception as e:
-                logger.error(f"[caption] Falha ao fazer upload ASS para clip {idx}: {e}")
+                logger.error(
+                    f"[caption] Falha ao fazer upload ASS para clip {idx}: {e}"
+                )
                 continue
 
-            caption_files.append({
-                "kind": "ass",
-                "index": idx,
-                "clip_id": str(clip_id),
-                "path": str(storage_path),
-                "start_time": float(clip_start),
-                "end_time": float(clip_end),
-                "file_size": int(file_size),
-            })
+            caption_files.append(
+                {
+                    "kind": "ass",
+                    "index": idx,
+                    "clip_id": str(clip_id),
+                    "path": str(storage_path),
+                    "local_path": ass_path,
+                    "start_time": float(clip_start),
+                    "end_time": float(clip_end),
+                    "file_size": int(file_size),
+                }
+            )
 
         # Valida se gerou pelo menos uma legenda
         if not caption_files:
@@ -206,15 +219,13 @@ def caption_clips_task(self, video_id: str) -> dict:
         video.status = "rendering"
         video.current_step = "rendering"
         video.save()
-        
+
         _safe_update_job_status(
-            str(video.video_id),
-            "rendering",
-            progress=90,
-            current_step="rendering"
+            str(video.video_id), "rendering", progress=90, current_step="rendering"
         )
 
         from .clip_generation_task import clip_generation_task
+
         clip_generation_task.apply_async(
             args=[str(video.video_id)],
             queue=f"video.clip.{get_plan_tier(org.plan)}",
@@ -230,25 +241,22 @@ def caption_clips_task(self, video_id: str) -> dict:
     except Video.DoesNotExist:
         logger.error(f"[caption] Video not found: {video_id}")
         return {"error": "Video not found", "status": "failed"}
-        
+
     except Exception as e:
         logger.error(f"[caption] Error for video_id={video_id}: {e}", exc_info=True)
-        
+
         if video:
             video.status = "failed"
             video.error_message = str(e)
             video.save()
 
             _safe_update_job_status(
-                str(video.video_id),
-                "failed",
-                progress=100,
-                current_step="captioning"
+                str(video.video_id), "failed", progress=100, current_step="captioning"
             )
 
         # Retry com backoff exponencial
         if self.request.retries < self.max_retries:
-            countdown = 2 ** self.request.retries
+            countdown = 2**self.request.retries
             logger.info(
                 f"[caption] Retrying ({self.request.retries + 1}/{self.max_retries}) "
                 f"in {countdown}s"
@@ -266,23 +274,21 @@ def _generate_karaoke_ass(
 ) -> None:
     """
     Gera arquivo ASS com legendas karaoke para um clip
-    
+
     Args:
         transcript: Objeto Transcript com segments e words
         clip_start: Tempo de início do clip (segundos)
         clip_end: Tempo de fim do clip (segundos)
         output_file: Path do arquivo ASS a ser criado
-        
+
     Raises:
         ValueError: Se parâmetros inválidos
         IOError: Se não conseguir escrever arquivo
     """
     # Validação de parâmetros
     if clip_end <= clip_start:
-        raise ValueError(
-            f"Timestamps inválidos: start={clip_start} end={clip_end}"
-        )
-    
+        raise ValueError(f"Timestamps inválidos: start={clip_start} end={clip_end}")
+
     segments = transcript.segments or []
     if not segments:
         raise ValueError("Transcrição sem segments")
@@ -291,7 +297,9 @@ def _generate_karaoke_ass(
     font_name = _get_config("CAPTION_FONT_NAME", DEFAULT_FONT_NAME, str)
     font_size = _get_config("CAPTION_FONT_SIZE", DEFAULT_FONT_SIZE, int)
     margin_v = _get_config("CAPTION_MARGIN_V", DEFAULT_MARGIN_V, int)
-    max_chars_per_line = _get_config("CAPTION_MAX_CHARS_PER_LINE", DEFAULT_MAX_CHARS_PER_LINE, int)
+    max_chars_per_line = _get_config(
+        "CAPTION_MAX_CHARS_PER_LINE", DEFAULT_MAX_CHARS_PER_LINE, int
+    )
     min_karaoke_cs = _get_config("CAPTION_MIN_KARAOKE_CS", DEFAULT_MIN_KARAOKE_CS, int)
 
     # Valida configurações
@@ -326,29 +334,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         seg_start = _to_float(seg.get("start"), 0.0)
         seg_end = _to_float(seg.get("end"), 0.0)
-        
+
         # Pula segments fora do clip
         if seg_end < clip_start or seg_start > clip_end:
             continue
-        
+
         segments_used += 1
-            
+
         words = seg.get("words", [])
-        
+
         # Validação de words array
         if not isinstance(words, list):
             words = []
-            
+
         # Fallback: segment sem words
         if not words:
             # Calcula timestamps relativos ao clip
             rel_start = max(0.0, seg_start - clip_start)
             rel_end = min(clip_end - clip_start, seg_end - clip_start)
-            
+
             if rel_end > rel_start:
                 start_time_str = _seconds_to_ass_time(rel_start)
                 end_time_str = _seconds_to_ass_time(rel_end)
-                
+
                 text = (seg.get("text") or "").strip()
                 if text:
                     text_escaped = _escape_ass_text(text.upper())
@@ -361,7 +369,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Processa words com karaoke
         current_line_words: List[Dict[str, Any]] = []
         current_chars = 0
-        
+
         for word in words:
             if not isinstance(word, dict):
                 continue
@@ -372,15 +380,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             word_start = _to_float(word.get("start"), 0.0)
             word_end = _to_float(word.get("end"), 0.0)
-            
+
             # Valida timestamps da palavra
             if word_end <= word_start:
                 continue
-            
+
             # Calcula timestamps relativos ao clip
             rel_w_start = word_start - clip_start
             rel_w_end = word_end - clip_start
-            
+
             # Pula palavras fora do clip
             if rel_w_end < 0 or rel_w_start > (clip_end - clip_start):
                 continue
@@ -392,26 +400,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_cs = int(duration_s * 100)
             duration_cs = max(min_karaoke_cs, duration_cs)
 
-            current_line_words.append({
-                "text": word_text,
-                "start": rel_w_start,
-                "end": rel_w_end,
-                "duration_cs": duration_cs,
-            })
-            
-            current_chars += len(word_text) + 1  # +1 para espaço
-            
-            # Quebra linha se atingir limite de caracteres
-            should_break_line = (
-                current_chars >= max_chars_per_line or
-                _is_sentence_end(word_text)
+            current_line_words.append(
+                {
+                    "text": word_text,
+                    "start": rel_w_start,
+                    "end": rel_w_end,
+                    "duration_cs": duration_cs,
+                }
             )
-            
+
+            current_chars += len(word_text) + 1  # +1 para espaço
+
+            # Quebra linha se atingir limite de caracteres
+            should_break_line = current_chars >= max_chars_per_line or _is_sentence_end(
+                word_text
+            )
+
             if should_break_line and current_line_words:
                 _add_karaoke_event(events, current_line_words)
                 current_line_words = []
                 current_chars = 0
-        
+
         # Adiciona linha final se houver palavras restantes
         if current_line_words:
             _add_karaoke_event(events, current_line_words)
@@ -432,10 +441,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         raise
 
 
-def _add_karaoke_event(events_list: List[str], words_data: List[Dict[str, Any]]) -> None:
+def _add_karaoke_event(
+    events_list: List[str], words_data: List[Dict[str, Any]]
+) -> None:
     """
     Adiciona um evento de karaoke à lista
-    
+
     Args:
         events_list: Lista de eventos ASS (modificada in-place)
         words_data: Lista de palavras com timing
@@ -446,78 +457,77 @@ def _add_karaoke_event(events_list: List[str], words_data: List[Dict[str, Any]])
     # Extrai timestamps
     start_time = _to_float(words_data[0].get("start"), 0.0)
     end_time = _to_float(words_data[-1].get("end"), 0.0)
-    
+
     if end_time <= start_time:
         logger.warning("[caption] Evento karaoke com timestamps inválidos, pulando")
         return
-    
+
     start_time_str = _seconds_to_ass_time(start_time)
     end_time_str = _seconds_to_ass_time(end_time)
-    
+
     # Monta texto com tags karaoke
     text_parts: List[str] = []
-    
+
     for word in words_data:
         word_text = (word.get("text") or "").strip()
         if not word_text:
             continue
-            
+
         duration_cs = int(word.get("duration_cs", 1) or 1)
         duration_cs = max(1, duration_cs)  # Garante mínimo de 1cs
-        
+
         text_escaped = _escape_ass_text(word_text.upper())
         text_parts.append(f"{{\\k{duration_cs}}}{text_escaped}")
-    
+
     if not text_parts:
         return
-        
+
     full_text = " ".join(text_parts)
-    
+
     events_list.append(
-        f"Dialogue: 0,{start_time_str},{end_time_str},"
-        f"Default,,0,0,0,,{full_text}"
+        f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{full_text}"
     )
 
 
 def _seconds_to_ass_time(seconds: float) -> str:
     """
     Converte segundos para formato de tempo ASS (H:MM:SS.CS)
-    
+
     Args:
         seconds: Tempo em segundos
-        
+
     Returns:
         String formatada (ex: "0:01:23.45")
     """
     if seconds < 0:
         seconds = 0.0
-    
+
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     centisecs = int((seconds % 1) * 100)
-    
+
     # Limita valores
     hours = min(hours, 9)  # ASS usa 1 dígito para horas
     centisecs = min(centisecs, 99)
-    
+
     return f"{hours:1d}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
 
 def _escape_ass_text(text: str) -> str:
-    
+
     if not isinstance(text, str):
         return ""
-    
+
     escaped = text.replace("\\", "\\\\")
     escaped = escaped.replace("{", "\\{")
     escaped = escaped.replace("}", "\\}")
-    
+
     escaped = escaped.replace("\n", " ").replace("\r", " ")
-    
+
     while "  " in escaped:
         escaped = escaped.replace("  ", " ")
-    
+
     return escaped.strip()
 
 
@@ -525,7 +535,7 @@ def _is_sentence_end(text: str) -> bool:
 
     if not isinstance(text, str):
         return False
-        
-    end_punctuation = ('.', '?', '!', ':', ';', '…')
-    
+
+    end_punctuation = (".", "?", "!", ":", ";", "…")
+
     return text.rstrip().endswith(end_punctuation)

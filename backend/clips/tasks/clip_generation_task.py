@@ -20,7 +20,7 @@ DEFAULT_MAX_WORKERS = 4
 DEFAULT_FFMPEG_TIMEOUT = 600
 DEFAULT_TARGET_HEIGHT = 720
 DEFAULT_CRF = 21
-DEFAULT_PRESET = "medium"
+DEFAULT_PRESET = "veryfast"
 DEFAULT_AUDIO_BITRATE = "192k"
 
 
@@ -42,10 +42,12 @@ def _safe_update_job_status(
     status: str,
     *,
     progress: Optional[int] = None,
-    current_step: Optional[str] = None
+    current_step: Optional[str] = None,
 ):
     try:
-        update_job_status(video_id, status, progress=progress, current_step=current_step)
+        update_job_status(
+            video_id, status, progress=progress, current_step=current_step
+        )
     except Exception as e:
         logger.warning(f"[clip_gen] update_job_status failed for {video_id}: {e}")
 
@@ -72,16 +74,16 @@ def _normalize_score_to_0_100(raw_score: float) -> float:
 def _validate_crop_config(crop_config: Optional[Dict]) -> Optional[Dict[str, int]]:
     if not crop_config or not isinstance(crop_config, dict):
         return None
-    
+
     try:
         w = int(crop_config.get("width", 0))
         h = int(crop_config.get("height", 0))
         x = int(crop_config.get("x", 0))
         y = int(crop_config.get("y", 0))
-        
+
         if w <= 0 or h <= 0 or x < 0 or y < 0:
             return None
-            
+
         return {"width": w, "height": h, "x": x, "y": y}
     except (ValueError, TypeError):
         return None
@@ -90,20 +92,28 @@ def _validate_crop_config(crop_config: Optional[Dict]) -> Optional[Dict[str, int
 @shared_task(bind=True, max_retries=5, acks_late=False)
 def clip_generation_task(self, video_id: str) -> dict:
     video = None
-    
+
     try:
         logger.info(f"[clip_gen] Iniciando para video_id={video_id}")
-        
+
         video = Video.objects.get(video_id=video_id)
         org = Organization.objects.get(organization_id=video.organization_id)
 
-        job = (
-            Job.objects.filter(video_id=video.video_id, organization_id=video.organization_id)
+        job_obj = (
+            Job.objects.filter(
+                video_id=video.video_id, organization_id=video.organization_id
+            )
             .order_by("-created_at")
             .first()
         )
-        job_config = (job.configuration if job and isinstance(job.configuration, dict) else {})
-        auto_schedule = bool(job_config.get("autoSchedule") or job_config.get("auto_schedule"))
+        job_config = (
+            job_obj.configuration
+            if job_obj and isinstance(job_obj.configuration, dict)
+            else {}
+        )
+        auto_schedule = bool(
+            job_config.get("autoSchedule") or job_config.get("auto_schedule")
+        )
         auto_platform = str(job_config.get("auto_schedule_platform") or "tiktok")
 
         video.status = "rendering"
@@ -117,13 +127,13 @@ def clip_generation_task(self, video_id: str) -> dict:
         selected_clips = transcript.selected_clips or []
         caption_files = transcript.caption_files or []
         reframe_data = transcript.reframe_data or {}
-        
+
         if not selected_clips:
             raise ValueError("Nenhum clip para renderizar")
 
         crop_config_raw = reframe_data.get("crops", {}).get("9:16")
         crop_config = _validate_crop_config(crop_config_raw)
-        
+
         if crop_config_raw and not crop_config:
             logger.warning("[clip_gen] Crop config inválido, ignorando crop")
 
@@ -143,12 +153,14 @@ def clip_generation_task(self, video_id: str) -> dict:
 
         total_clips = len(selected_clips)
         end_pad_s = _get_config("CLIP_END_PAD_SECONDS", DEFAULT_END_PAD_SECONDS, float)
-        min_clip_duration_s = _get_config("CLIP_MIN_DURATION_SECONDS", DEFAULT_MIN_CLIP_DURATION, float)
-        
+        min_clip_duration_s = _get_config(
+            "CLIP_MIN_DURATION_SECONDS", DEFAULT_MIN_CLIP_DURATION, float
+        )
+
         video_duration = _to_float(video.duration, 0.0) if video.duration else 0.0
 
         render_jobs: List[Dict[str, Any]] = []
-        
+
         for idx, clip in enumerate(selected_clips):
             clip_uuid = uuid.uuid4()
             start_time = _to_float(clip.get("start_time"), 0.0)
@@ -166,12 +178,14 @@ def clip_generation_task(self, video_id: str) -> dict:
                     f"[clip_gen] Clip {idx} timestamps inválidos: "
                     f"start={start_time} end={end_time}, pulando"
                 )
-                failures.append({
-                    "idx": idx,
-                    "error": "invalid_timestamps",
-                    "start": start_time,
-                    "end": end_time,
-                })
+                failures.append(
+                    {
+                        "idx": idx,
+                        "error": "invalid_timestamps",
+                        "start": start_time,
+                        "end": end_time,
+                    }
+                )
                 continue
 
             duration = end_time - start_time
@@ -180,14 +194,18 @@ def clip_generation_task(self, video_id: str) -> dict:
                     f"[clip_gen] Clip {idx} muito curto: "
                     f"duration={duration:.2f}s < min={min_clip_duration_s}s, pulando"
                 )
-                failures.append({
-                    "idx": idx,
-                    "error": "duration_too_short",
-                    "duration": duration,
-                })
+                failures.append(
+                    {
+                        "idx": idx,
+                        "error": "duration_too_short",
+                        "duration": duration,
+                    }
+                )
                 continue
 
-            hook_title = clip.get("title") or clip.get("hook_title") or f"Clip {idx + 1}"
+            hook_title = (
+                clip.get("title") or clip.get("hook_title") or f"Clip {idx + 1}"
+            )
             matched_caption = next(
                 (
                     c
@@ -200,30 +218,54 @@ def clip_generation_task(self, video_id: str) -> dict:
             )
             ass_file = None
             if isinstance(matched_caption, dict):
-                cap_path = matched_caption.get("path")
-                if isinstance(cap_path, str) and cap_path:
-                    local_ass = os.path.join(captions_dir, f"caption_{idx}.ass")
-                    try:
-                        storage.download_file(str(cap_path), local_ass)
+                local_path = matched_caption.get("local_path")
+                if (
+                    isinstance(local_path, str)
+                    and os.path.exists(local_path)
+                    and os.path.getsize(local_path) > 0
+                ):
+                    ass_file = local_path
+                else:
+                    cap_path = matched_caption.get("path")
+                    if isinstance(cap_path, str) and cap_path:
+                        local_ass = os.path.join(captions_dir, f"caption_{idx}.ass")
                         if os.path.exists(local_ass) and os.path.getsize(local_ass) > 0:
                             ass_file = local_ass
-                    except Exception as e:
-                        logger.warning(f"[clip_gen] Falha ao baixar ASS do R2 para clip {idx}: {e}")
+                            cap_path = None
+                    if isinstance(cap_path, str) and cap_path:
+                        local_ass = os.path.join(captions_dir, f"caption_{idx}.ass")
+                        tmp_ass = f"{local_ass}.tmp"
+                        try:
+                            storage.download_file(str(cap_path), tmp_ass)
+                            if os.path.exists(tmp_ass) and os.path.getsize(tmp_ass) > 0:
+                                os.replace(tmp_ass, local_ass)
+                                ass_file = local_ass
+                        except Exception as e:
+                            logger.warning(
+                                f"[clip_gen] Falha ao baixar ASS do R2 para clip {idx}: {e}"
+                            )
+                            try:
+                                if os.path.exists(tmp_ass):
+                                    os.remove(tmp_ass)
+                            except Exception:
+                                pass
 
             clip_filename = f"clip_{clip_uuid}.mp4"
             clip_path = os.path.join(output_dir, clip_filename)
 
-            render_jobs.append({
-                "idx": idx,
-                "clip_uuid": clip_uuid,
-                "clip_path": clip_path,
-                "start_time": start_time,
-                "end_time": end_time,
-                "hook_title": hook_title,
-                "ass_file": ass_file,
-                "transcript_text": str(clip.get("text", ""))[:5000],
-                "score_raw": _to_float(clip.get("score"), 0.0),
-            })
+            render_jobs.append(
+                {
+                    "idx": idx,
+                    "clip_uuid": clip_uuid,
+                    "clip_path": clip_path,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "hook_title": hook_title,
+                    "ass_file": ass_file,
+                    "transcript_text": str(clip.get("text", ""))[:5000],
+                    "score_raw": _to_float(clip.get("score"), 0.0),
+                }
+            )
 
         if not render_jobs:
             error_msg = (
@@ -242,55 +284,60 @@ def clip_generation_task(self, video_id: str) -> dict:
         if not max_workers or max_workers <= 0:
             cpu_count = os.cpu_count() or 2
             max_workers = max(1, min(DEFAULT_MAX_WORKERS, cpu_count))
-        
+
         max_workers = int(max(1, min(max_workers, 8)))
 
         completed = 0
         _safe_update_job_status(
-            str(video.video_id),
-            "rendering",
-            progress=85,
-            current_step="rendering"
+            str(video.video_id), "rendering", progress=85, current_step="rendering"
         )
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_job = {
+            future_to_render_job = {
                 executor.submit(
                     _render_clip,
                     input_path,
-                    job["clip_path"],
-                    job["start_time"],
-                    job["end_time"],
+                    render_job["clip_path"],
+                    render_job["start_time"],
+                    render_job["end_time"],
                     crop_config,
-                    job["ass_file"],
-                ): job
-                for job in render_jobs
+                    render_job["ass_file"],
+                ): render_job
+                for render_job in render_jobs
             }
 
-            for future in as_completed(future_to_job):
-                job = future_to_job[future]
-                
+            for future in as_completed(future_to_render_job):
+                render_job = future_to_render_job[future]
+
                 try:
                     future.result()
                 except Exception as e:
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": str(e)[:200],
-                    })
-                    logger.error(f"[clip_gen] Render failed for clip {job['idx']}: {e}")
-                    
-                    if os.path.exists(job["clip_path"]):
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": str(e)[:200],
+                        }
+                    )
+                    logger.error(
+                        f"[clip_gen] Render failed for clip {render_job['idx']}: {e}"
+                    )
+
+                    if os.path.exists(render_job["clip_path"]):
                         try:
-                            os.remove(job["clip_path"])
-                            logger.debug(f"[clip_gen] Removed failed clip file: {job['clip_path']}")
+                            os.remove(render_job["clip_path"])
+                            logger.debug(
+                                f"[clip_gen] Removed failed clip file: {render_job['clip_path']}"
+                            )
                         except Exception as cleanup_err:
-                            logger.warning(f"[clip_gen] Failed to cleanup: {cleanup_err}")
+                            logger.warning(
+                                f"[clip_gen] Failed to cleanup: {cleanup_err}"
+                            )
                     continue
 
                 completed += 1
                 progress = 85 + int((completed / max(1, len(render_jobs))) * 10)
                 progress = int(max(85, min(progress, 99)))
-                
+
                 _safe_update_job_status(
                     str(video.video_id),
                     "rendering",
@@ -298,23 +345,29 @@ def clip_generation_task(self, video_id: str) -> dict:
                     current_step=f"rendering_clip_{completed}/{len(render_jobs)}",
                 )
 
-                clip_path = job["clip_path"]
-                
+                clip_path = render_job["clip_path"]
+
                 if not os.path.exists(clip_path):
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": "clip_file_not_found_after_render",
-                    })
-                    logger.error(f"[clip_gen] Clip file missing after render: {clip_path}")
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": "clip_file_not_found_after_render",
+                        }
+                    )
+                    logger.error(
+                        f"[clip_gen] Clip file missing after render: {clip_path}"
+                    )
                     continue
-                
+
                 file_size = os.path.getsize(clip_path)
-                
+
                 if file_size <= 0:
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": "clip_file_empty",
-                    })
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": "clip_file_empty",
+                        }
+                    )
                     logger.error(f"[clip_gen] Clip file is empty: {clip_path}")
                     try:
                         os.remove(clip_path)
@@ -327,15 +380,19 @@ def clip_generation_task(self, video_id: str) -> dict:
                         file_path=clip_path,
                         organization_id=str(video.organization_id),
                         video_id=str(video.video_id),
-                        clip_id=str(job["clip_uuid"]),
+                        clip_id=str(render_job["clip_uuid"]),
                     )
                 except Exception as upload_err:
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": f"upload_failed: {str(upload_err)[:100]}",
-                    })
-                    logger.error(f"[clip_gen] Upload failed for clip {job['idx']}: {upload_err}")
-                    
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": f"upload_failed: {str(upload_err)[:100]}",
+                        }
+                    )
+                    logger.error(
+                        f"[clip_gen] Upload failed for clip {render_job['idx']}: {upload_err}"
+                    )
+
                     try:
                         os.remove(clip_path)
                     except Exception:
@@ -343,52 +400,64 @@ def clip_generation_task(self, video_id: str) -> dict:
                     continue
 
                 if not clip_storage_path:
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": "upload_returned_empty_path",
-                    })
-                    logger.error(f"[clip_gen] Upload returned empty path for clip {job['idx']}")
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": "upload_returned_empty_path",
+                        }
+                    )
+                    logger.error(
+                        f"[clip_gen] Upload returned empty path for clip {render_job['idx']}"
+                    )
                     try:
                         os.remove(clip_path)
                     except Exception:
                         pass
                     continue
 
-                score_0_100 = _normalize_score_to_0_100(job.get("score_raw", 0.0))
+                score_0_100 = _normalize_score_to_0_100(
+                    render_job.get("score_raw", 0.0)
+                )
 
                 try:
                     Clip.objects.create(
-                        clip_id=job["clip_uuid"],
-                        job=job if job else None,
+                        clip_id=render_job["clip_uuid"],
+                        job=job_obj,
                         video=video,
-                        title=job["hook_title"],
-                        start_time=job["start_time"],
-                        end_time=job["end_time"],
-                        duration=job["end_time"] - job["start_time"],
+                        title=render_job["hook_title"],
+                        start_time=render_job["start_time"],
+                        end_time=render_job["end_time"],
+                        duration=render_job["end_time"] - render_job["start_time"],
                         storage_path=clip_storage_path,
                         file_size=file_size,
-                        transcript=job["transcript_text"],
+                        transcript=render_job["transcript_text"],
                         engagement_score=round(score_0_100, 2),
                         confidence_score=0,
                     )
                 except Exception as db_err:
-                    failures.append({
-                        "idx": job["idx"],
-                        "error": f"database_create_failed: {str(db_err)[:100]}",
-                    })
+                    failures.append(
+                        {
+                            "idx": render_job["idx"],
+                            "error": f"database_create_failed: {str(db_err)[:100]}",
+                        }
+                    )
                     logger.error(f"[clip_gen] Failed to create Clip in DB: {db_err}")
                     continue
 
-                generated_clips.append({
-                    "clip_id": str(job["clip_uuid"]),
-                    "url": clip_storage_path,
-                })
+                generated_clips.append(
+                    {
+                        "clip_id": str(render_job["clip_uuid"]),
+                        "url": clip_storage_path,
+                    }
+                )
 
                 try:
                     os.remove(clip_path)
                     logger.debug(f"[clip_gen] Removed local clip file: {clip_path}")
                 except Exception as cleanup_err:
-                    logger.warning(f"[clip_gen] Failed to remove local file: {cleanup_err}")
+                    logger.warning(
+                        f"[clip_gen] Failed to remove local file: {cleanup_err}"
+                    )
 
         if not generated_clips:
             error_msg = (
@@ -429,14 +498,17 @@ def clip_generation_task(self, video_id: str) -> dict:
 
                     Schedule.objects.create(
                         clip=clip_obj,
-                        user_id=getattr(video, "user_id", None) or (job.user_id if job else None),
+                        user_id=getattr(video, "user_id", None)
+                        or (job_obj.user_id if job_obj else None),
                         platform=auto_platform,
                         scheduled_time=scheduled_time,
                         status="scheduled",
                     )
                     created += 1
 
-                logger.info(f"[clip_gen] Auto-schedule enabled: created {created} schedules")
+                logger.info(
+                    f"[clip_gen] Auto-schedule enabled: created {created} schedules"
+                )
             except Exception as e:
                 logger.warning(f"[clip_gen] Auto-schedule failed: {e}")
 
@@ -445,12 +517,9 @@ def clip_generation_task(self, video_id: str) -> dict:
         video.current_step = "done"
         video.completed_at = timezone.now()
         video.save()
-        
+
         _safe_update_job_status(
-            str(video.video_id),
-            "done",
-            progress=100,
-            current_step="done"
+            str(video.video_id), "done", progress=100, current_step="done"
         )
 
         return {
@@ -463,29 +532,30 @@ def clip_generation_task(self, video_id: str) -> dict:
     except Video.DoesNotExist:
         logger.error(f"[clip_gen] Video not found: {video_id}")
         return {"error": "Video not found", "status": "failed"}
-        
+
     except Exception as e:
         logger.error(f"[clip_gen] Error for video_id={video_id}: {e}", exc_info=True)
-        
+
+        if self.request.retries < self.max_retries:
+            if video:
+                video.error_message = str(e)[:500]
+                video.save(update_fields=["error_message"])
+
+            countdown = 2**self.request.retries
+            logger.info(
+                f"[clip_gen] Retrying ({self.request.retries + 1}/{self.max_retries}) "
+                f"in {countdown}s"
+            )
+            raise self.retry(exc=e, countdown=countdown)
+
         if video:
             video.status = "failed"
             video.error_message = str(e)[:500]
             video.save()
 
             _safe_update_job_status(
-                str(video.video_id),
-                "failed",
-                progress=100,
-                current_step="rendering"
+                str(video.video_id), "failed", progress=100, current_step="rendering"
             )
-
-        if self.request.retries < self.max_retries:
-            countdown = 2 ** self.request.retries
-            logger.info(
-                f"[clip_gen] Retrying ({self.request.retries + 1}/{self.max_retries}) "
-                f"in {countdown}s"
-            )
-            raise self.retry(exc=e, countdown=countdown)
 
         return {"error": str(e)[:500], "status": "failed"}
 
@@ -498,15 +568,17 @@ def _render_clip(
     crop_config: Optional[Dict[str, int]] = None,
     ass_file: Optional[str] = None,
 ) -> None:
-    
+
     if end_time <= start_time:
         raise ValueError(f"Invalid timestamps: start={start_time} end={end_time}")
-    
+
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
     ffmpeg_path = _get_config("FFMPEG_PATH", "ffmpeg", str)
-    ffmpeg_timeout_s = _get_config("FFMPEG_RENDER_TIMEOUT_SECONDS", DEFAULT_FFMPEG_TIMEOUT, int)
+    ffmpeg_timeout_s = _get_config(
+        "FFMPEG_RENDER_TIMEOUT_SECONDS", DEFAULT_FFMPEG_TIMEOUT, int
+    )
     target_height = _get_config("CLIP_RENDER_TARGET_HEIGHT", DEFAULT_TARGET_HEIGHT, int)
     crf = _get_config("CLIP_RENDER_CRF", DEFAULT_CRF, int)
     preset = _get_config("CLIP_RENDER_PRESET", DEFAULT_PRESET, str)
@@ -514,15 +586,25 @@ def _render_clip(
 
     target_height = int(max(0, min(target_height, 4320)))
     crf = int(max(0, min(crf, 51)))
-    
-    valid_presets = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
+
+    valid_presets = [
+        "ultrafast",
+        "superfast",
+        "veryfast",
+        "faster",
+        "fast",
+        "medium",
+        "slow",
+        "slower",
+        "veryslow",
+    ]
     if preset not in valid_presets:
         preset = DEFAULT_PRESET
 
     duration = end_time - start_time
 
     filter_chain: List[str] = []
-    
+
     if crop_config:
         w = crop_config["width"]
         h = crop_config["height"]
@@ -533,9 +615,9 @@ def _render_clip(
 
     if ass_file and os.path.exists(ass_file):
         clean_ass_path = ass_file.replace("\\", "/")
-        
+
         escaped_path = clean_ass_path.replace(":", "\\:")
-        
+
         filter_chain.append(f"ass='{escaped_path}'")
         logger.debug(f"[render] ASS: {ass_file}")
     elif ass_file:
@@ -547,26 +629,44 @@ def _render_clip(
 
     vf_arg = ",".join(filter_chain) if filter_chain else None
 
+    tmp_output_path = f"{output_path}.tmp"
+    if os.path.exists(tmp_output_path):
+        try:
+            os.remove(tmp_output_path)
+        except OSError:
+            pass
+
     cmd = [
         ffmpeg_path,
         "-y",
-        "-ss", f"{start_time:.3f}",
-        "-t", f"{duration:.3f}",
-        "-i", input_path,
+        "-ss",
+        f"{start_time:.3f}",
+        "-t",
+        f"{duration:.3f}",
+        "-i",
+        input_path,
     ]
 
     if vf_arg:
         cmd.extend(["-vf", vf_arg])
+        cmd.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                preset,
+                "-crf",
+                str(crf),
+                "-c:a",
+                "aac",
+                "-b:a",
+                audio_bitrate,
+            ]
+        )
+    else:
+        cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero"])
 
-    cmd.extend([
-        "-c:v", "libx264",
-        "-preset", preset,
-        "-crf", str(crf),
-        "-c:a", "aac",
-        "-b:a", audio_bitrate,
-        "-movflags", "+faststart",
-        output_path
-    ])
+    cmd.extend(["-movflags", "+faststart", tmp_output_path])
 
     logger.debug(f"[render] FFmpeg command: {' '.join(cmd)}")
 
@@ -580,18 +680,34 @@ def _render_clip(
             timeout=ffmpeg_timeout_s,
         )
     except subprocess.CalledProcessError as e:
+        if os.path.exists(tmp_output_path):
+            try:
+                os.remove(tmp_output_path)
+            except OSError:
+                pass
         error_msg = (e.stderr if e.stderr else str(e))[:500]
         logger.error(f"[render] FFmpeg failed: {error_msg}")
         raise RuntimeError(f"FFmpeg render failed: {error_msg}")
     except subprocess.TimeoutExpired:
+        if os.path.exists(tmp_output_path):
+            try:
+                os.remove(tmp_output_path)
+            except OSError:
+                pass
         logger.error(f"[render] FFmpeg timeout after {ffmpeg_timeout_s}s")
         raise TimeoutError(f"FFmpeg timeout after {ffmpeg_timeout_s}s")
 
-    if not os.path.exists(output_path):
+    if not os.path.exists(tmp_output_path):
         raise RuntimeError("FFmpeg completed but output file not created")
-    
-    output_size = os.path.getsize(output_path)
+
+    output_size = os.path.getsize(tmp_output_path)
     if output_size <= 0:
+        try:
+            os.remove(tmp_output_path)
+        except OSError:
+            pass
         raise RuntimeError("FFmpeg created empty output file")
-    
+
+    os.replace(tmp_output_path, output_path)
+
     logger.debug(f"[render] Success: {output_path} ({output_size} bytes)")

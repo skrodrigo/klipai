@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { BACKEND_BASE_URL } from '@/infra/http'
 
 interface SocialAccount {
   social_account_id: string
@@ -52,7 +53,7 @@ export const useOAuth = (): UseOAuthReturn => {
       const oauthProvider = mapPlatformToOAuthProvider(platform)
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/oauth/authorize/${oauthProvider}/`,
+        `${BACKEND_BASE_URL}/api/auth/oauth/authorize/${oauthProvider}/`,
         {
           method: 'GET',
           headers: {
@@ -97,7 +98,7 @@ export const useOAuth = (): UseOAuthReturn => {
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/social-accounts/${platform}/disconnect/`,
+        `${BACKEND_BASE_URL}/api/auth/social-accounts/${platform}/disconnect/`,
         {
           method: 'POST',
           headers: {
@@ -135,7 +136,7 @@ export const useOAuth = (): UseOAuthReturn => {
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/social-accounts/`,
+        `${BACKEND_BASE_URL}/api/auth/social-accounts/`,
         {
           method: 'GET',
           headers: {

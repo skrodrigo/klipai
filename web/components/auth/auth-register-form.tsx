@@ -23,10 +23,6 @@ import Link from "next/link";
 const registerSchema = z.object({
   email: z.string().email("Email inválido"),
   password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "As senhas não correspondem",
-  path: ["confirmPassword"],
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -39,7 +35,6 @@ export function AuthRegisterForm() {
     defaultValues: {
       email: "",
       password: "",
-      confirmPassword: "",
     },
   });
 
@@ -78,8 +73,7 @@ export function AuthRegisterForm() {
   });
 
   async function onSubmit(values: RegisterFormValues) {
-    const { confirmPassword, ...payload } = values;
-    mutate(payload);
+    mutate(values);
   }
 
   return (
@@ -112,19 +106,6 @@ export function AuthRegisterForm() {
             </FormItem>
           )}
         />
-        <FormField
-          control={form.control}
-          name="confirmPassword"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Confirmar Senha</FormLabel>
-              <FormControl>
-                <Input type="password" placeholder="confirme sua senha" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
         <Button type="submit" disabled={isPending} className="w-full">
           {isPending ? <Spinner /> : "Registrar"}
         </Button>
@@ -133,11 +114,6 @@ export function AuthRegisterForm() {
           <Button type="button" variant="default" className="w-full flex items-center justify-center gap-2 bg-foreground text-background">
             <img src="/logos/google.svg" alt="Google" className="w-5 h-5" />
             <span>Continuar com Google</span>
-          </Button>
-          <Button type="button" variant="default" className="w-full flex items-center justify-center gap-2 dark:bg-black bg-foreground dark:text-foreground">
-            <img src="/logos/apple.svg" alt="Apple" className="w-5 h-5 dark:block hidden" />
-            <img src="/logos/apple-black.svg" alt="Apple" className="w-5 h-5 dark:hidden block" />
-            <span>Continuar com Apple</span>
           </Button>
         </div>
 

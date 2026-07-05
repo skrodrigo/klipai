@@ -20,17 +20,19 @@ def download_video_task(self, video_id: str) -> dict:
     temp_dir = None
     lock_path = None
     lock_owner_pid = None
-    
+
     try:
         video = Video.objects.get(video_id=video_id)
-        
+
         org = Organization.objects.get(organization_id=video.organization_id)
-        
+
         video.status = "downloading"
         video.current_step = "downloading"
         video.save()
-        
-        update_job_status(str(video.video_id), "downloading", progress=10, current_step="downloading")
+
+        update_job_status(
+            str(video.video_id), "downloading", progress=10, current_step="downloading"
+        )
 
         output_dir = os.path.join(settings.MEDIA_ROOT, f"videos/{video.video_id}")
         os.makedirs(output_dir, exist_ok=True)
@@ -38,7 +40,9 @@ def download_video_task(self, video_id: str) -> dict:
 
         lock_path = os.path.join(output_dir, ".download.lock")
         lock_owner_pid = int(os.getpid())
-        stale_seconds = int(getattr(settings, "DOWNLOAD_LOCK_STALE_SECONDS", 900) or 900)
+        stale_seconds = int(
+            getattr(settings, "DOWNLOAD_LOCK_STALE_SECONDS", 900) or 900
+        )
         try:
             if os.path.exists(lock_path):
                 try:
@@ -52,8 +56,14 @@ def download_video_task(self, video_id: str) -> dict:
             os.write(lock_fd, str(lock_owner_pid).encode("utf-8"))
             os.close(lock_fd)
         except FileExistsError:
-            logger.info(f"Download já em andamento para video_id={video.video_id}. Ignorando.")
-            return {"video_id": str(video.video_id), "status": "downloading", "detail": "already_running"}
+            logger.info(
+                f"Download já em andamento para video_id={video.video_id}. Ignorando."
+            )
+            return {
+                "video_id": str(video.video_id),
+                "status": "downloading",
+                "detail": "already_running",
+            }
 
         storage = R2StorageService()
         local_video_path = os.path.join(output_dir, "video_original.mp4")
@@ -64,19 +74,24 @@ def download_video_task(self, video_id: str) -> dict:
             video_path = local_video_path
 
         elif video.source_url:
-            logger.info(f"Baixando vídeo de URL externa: {video.source_url} (tipo: {video.source_type})")
+            logger.info(
+                f"Baixando vídeo de URL externa: {video.source_url} (tipo: {video.source_type})"
+            )
 
             downloaded = _download_from_source_url(
                 source_url=video.source_url,
                 output_dir=output_dir,
             )
             video_path = downloaded["video_path"]
+            audio_path = downloaded.get("audio_path")
             info = downloaded.get("info") or {}
 
             logger.info(
                 "Download retornou caminho=%s size=%s bytes",
                 video_path,
-                os.path.getsize(video_path) if os.path.exists(video_path) else "<missing>",
+                os.path.getsize(video_path)
+                if os.path.exists(video_path)
+                else "<missing>",
             )
 
             if video_path != local_video_path:
@@ -94,14 +109,39 @@ def download_video_task(self, video_id: str) -> dict:
                 video_path = local_video_path
                 logger.info(
                     "Arquivo movido. size=%s bytes",
-                    os.path.getsize(video_path) if os.path.exists(video_path) else "<missing>",
+                    os.path.getsize(video_path)
+                    if os.path.exists(video_path)
+                    else "<missing>",
                 )
 
-            original_filename = _guess_original_filename(info, fallback="video_original.mp4")
+            if isinstance(audio_path, str) and os.path.exists(audio_path):
+                audio_ext = os.path.splitext(audio_path)[1].lower() or ".m4a"
+                if audio_ext not in (".m4a", ".mp3", ".opus", ".webm", ".wav", ".aac"):
+                    audio_ext = ".m4a"
+                local_audio_path = os.path.join(
+                    output_dir, f"audio_original{audio_ext}"
+                )
+                try:
+                    if os.path.abspath(audio_path) != os.path.abspath(local_audio_path):
+                        if os.path.exists(local_audio_path):
+                            os.remove(local_audio_path)
+                        shutil.move(audio_path, local_audio_path)
+                    logger.info(
+                        "Áudio separado disponível para transcrição: %s",
+                        local_audio_path,
+                    )
+                except Exception as e:
+                    logger.warning("Falha ao preservar áudio separado do yt-dlp: %s", e)
+
+            original_filename = _guess_original_filename(
+                info, fallback="video_original.mp4"
+            )
             video.original_filename = original_filename
 
             if not video.title:
-                video.title = _guess_title_from_ydl_info(info, fallback=f"Video from {video.source_type or 'url'}")
+                video.title = _guess_title_from_ydl_info(
+                    info, fallback=f"Video from {video.source_type or 'url'}"
+                )
 
             if not video.storage_path:
                 try:
@@ -115,16 +155,26 @@ def download_video_task(self, video_id: str) -> dict:
                     video.save()
 
                     from .upload_original_video_task import upload_original_video_task
+
                     upload_original_video_task.apply_async(
                         args=[str(video.video_id)],
                         queue=f"video.download.{get_plan_tier(org.plan)}",
                     )
                 except Exception as e:
-                    logger.warning(f"Falha ao enfileirar upload async do vídeo original para o R2: {e}")
+                    logger.warning(
+                        f"Falha ao enfileirar upload async do vídeo original para o R2: {e}"
+                    )
         else:
-            raise Exception("Nenhuma fonte de vídeo disponível (storage_path ou source_url)")
+            raise Exception(
+                "Nenhuma fonte de vídeo disponível (storage_path ou source_url)"
+            )
 
-        update_job_status(str(video.video_id), "downloading", progress=14, current_step="validating_video")
+        update_job_status(
+            str(video.video_id),
+            "downloading",
+            progress=14,
+            current_step="validating_video",
+        )
         logger.info(f"Validando vídeo: {video_path}")
         duration, resolution, codec = _validate_video(video_path)
 
@@ -134,11 +184,14 @@ def download_video_task(self, video_id: str) -> dict:
         video.last_successful_step = "downloading"
 
         video.save()
-        
-        logger.info(f"Download concluído para video_id={video.video_id} | "
-                   f"Duração: {duration}s | Resolução: {resolution} | Codec: {codec}")
-        
+
+        logger.info(
+            f"Download concluído para video_id={video.video_id} | "
+            f"Duração: {duration}s | Resolução: {resolution} | Codec: {codec}"
+        )
+
         from .extract_thumbnail_task import extract_thumbnail_task
+
         logger.info(f"Disparando extract_thumbnail_task para video_id={video.video_id}")
         task_result = extract_thumbnail_task.apply_async(
             args=[str(video.video_id)],
@@ -158,10 +211,10 @@ def download_video_task(self, video_id: str) -> dict:
     except Video.DoesNotExist:
         logger.error(f"Vídeo não encontrado: {video_id}")
         return {"error": "Video not found", "status": "failed"}
-        
+
     except Exception as e:
         logger.error(f"Erro ao baixar vídeo {video_id}: {str(e)}", exc_info=True)
-        
+
         if video:
             video.status = "failed"
             video.current_step = "downloading"
@@ -191,8 +244,10 @@ def download_video_task(self, video_id: str) -> dict:
                 return {"error": str(e), "status": "failed", "error_code": error_code}
 
             if self.request.retries < self.max_retries:
-                countdown = 2 ** self.request.retries
-                logger.warning(f"Retentando download em {countdown}s (tentativa {self.request.retries + 1}/{self.max_retries})")
+                countdown = 2**self.request.retries
+                logger.warning(
+                    f"Retentando download em {countdown}s (tentativa {self.request.retries + 1}/{self.max_retries})"
+                )
                 raise self.retry(exc=e, countdown=countdown)
 
         if temp_dir:
@@ -235,8 +290,13 @@ def _download_from_source_url(source_url: str, output_dir: str) -> dict:
     user_agent = os.getenv("YTDLP_USER_AGENT")
     referer = os.getenv("YTDLP_REFERER")
 
-    concurrent_frags = int(getattr(settings, "YTDLP_CONCURRENT_FRAGMENT_DOWNLOADS", 4) or 4)
-    http_chunk_size = int(getattr(settings, "YTDLP_HTTP_CHUNK_SIZE", 10 * 1024 * 1024) or (10 * 1024 * 1024))
+    concurrent_frags = int(
+        getattr(settings, "YTDLP_CONCURRENT_FRAGMENT_DOWNLOADS", 4) or 4
+    )
+    http_chunk_size = int(
+        getattr(settings, "YTDLP_HTTP_CHUNK_SIZE", 10 * 1024 * 1024)
+        or (10 * 1024 * 1024)
+    )
     sleep_interval = float(getattr(settings, "YTDLP_SLEEP_INTERVAL", 0) or 0)
     max_sleep_interval = float(getattr(settings, "YTDLP_MAX_SLEEP_INTERVAL", 0) or 0)
     extractor_retries = int(getattr(settings, "YTDLP_EXTRACTOR_RETRIES", 3) or 3)
@@ -297,7 +357,9 @@ def _download_from_source_url(source_url: str, output_dir: str) -> dict:
     if not final_path:
         raise Exception("Arquivo de vídeo não encontrado após download")
 
-    return {"video_path": final_path, "info": info}
+    audio_path = _find_downloaded_audio_file(tmp_subdir, exclude_path=final_path)
+
+    return {"video_path": final_path, "audio_path": audio_path, "info": info}
 
 
 def _find_downloaded_media_file(download_dir: str) -> str | None:
@@ -309,6 +371,29 @@ def _find_downloaded_media_file(download_dir: str) -> str | None:
                 continue
             lower = name.lower()
             if lower.endswith((".mp4", ".mkv", ".mov", ".webm")):
+                candidates.append(p)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda p: os.path.getsize(p), reverse=True)
+        return candidates[0]
+    except FileNotFoundError:
+        return None
+
+
+def _find_downloaded_audio_file(
+    download_dir: str, exclude_path: str | None = None
+) -> str | None:
+    try:
+        candidates = []
+        exclude_abs = os.path.abspath(exclude_path) if exclude_path else None
+        for name in os.listdir(download_dir):
+            p = os.path.join(download_dir, name)
+            if os.path.isdir(p):
+                continue
+            if exclude_abs and os.path.abspath(p) == exclude_abs:
+                continue
+            lower = name.lower()
+            if lower.endswith((".m4a", ".mp3", ".opus", ".webm", ".wav", ".aac")):
                 candidates.append(p)
         if not candidates:
             return None
@@ -364,38 +449,45 @@ def _cleanup_temp_download_files(output_dir: str) -> None:
 
 
 def _validate_video(video_path: str) -> tuple:
-    ffprobe_path = getattr(settings, "FFMPEG_PATH", "ffmpeg").replace("ffmpeg", "ffprobe")
+    ffprobe_path = getattr(settings, "FFMPEG_PATH", "ffmpeg").replace(
+        "ffmpeg", "ffprobe"
+    )
     timeout = 30
 
     try:
         cmd = [
             ffprobe_path,
-            "-v", "error",
-            "-show_entries", "stream=codec_type,width,height,codec_name:format=duration",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,width,height,codec_name:format=duration",
+            "-of",
+            "json",
             video_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
-        
-        data = json.loads(result.stdout)
-        
-        format_info = data.get('format', {})
-        streams = data.get('streams', [])
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=timeout
+        )
 
-        duration = float(format_info.get('duration', 0))
-        
-        video_stream = next((s for s in streams if s['codec_type'] == 'video'), None)
-        audio_stream = next((s for s in streams if s['codec_type'] == 'audio'), None)
+        data = json.loads(result.stdout)
+
+        format_info = data.get("format", {})
+        streams = data.get("streams", [])
+
+        duration = float(format_info.get("duration", 0))
+
+        video_stream = next((s for s in streams if s["codec_type"] == "video"), None)
+        audio_stream = next((s for s in streams if s["codec_type"] == "audio"), None)
 
         if not video_stream:
             raise Exception("Arquivo não possui stream de vídeo válido")
-        
+
         if not audio_stream:
             logger.warning(f"Vídeo {video_path} não possui áudio")
 
-        width = int(video_stream.get('width', 0))
-        height = int(video_stream.get('height', 0))
-        codec = video_stream.get('codec_name', '')
+        width = int(video_stream.get("width", 0))
+        height = int(video_stream.get("height", 0))
+        codec = video_stream.get("codec_name", "")
         resolution = f"{width}x{height}"
 
         if duration < 5:
@@ -409,7 +501,9 @@ def _validate_video(video_path: str) -> tuple:
         return duration, resolution, codec
 
     except subprocess.TimeoutExpired:
-        raise Exception(f"Timeout ao validar vídeo (ffprobe demorou mais de {timeout}s)")
+        raise Exception(
+            f"Timeout ao validar vídeo (ffprobe demorou mais de {timeout}s)"
+        )
     except subprocess.CalledProcessError as e:
         raise Exception(f"Erro ao validar vídeo: {e.stderr or e}")
     except Exception as e:
@@ -419,11 +513,11 @@ def _validate_video(video_path: str) -> tuple:
 def _get_error_code(error_message: str) -> str:
     """
     Mapeia mensagem de erro para código de erro.
-    
+
     Usado para categorizar erros e facilitar debugging.
     """
     error_lower = error_message.lower()
-    
+
     if "private" in error_lower or "not accessible" in error_lower:
         return "VIDEO_PRIVATE"
     elif "not available" in error_lower or "removed" in error_lower:

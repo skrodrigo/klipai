@@ -115,11 +115,6 @@ export function AuthLoginForm() {
             <img src="/logos/google.svg" alt="Google" className="w-5 h-5" />
             <span>Continuar com Google</span>
           </Button>
-          <Button type="button" variant="default" className="w-full flex items-center justify-center gap-2 dark:bg-black bg-foreground dark:text-foreground">
-            <img src="/logos/apple.svg" alt="Apple" className="w-5 h-5 dark:block hidden" />
-            <img src="/logos/apple-black.svg" alt="Apple" className="w-5 h-5 dark:hidden block" />
-            <span>Continuar com Apple</span>
-          </Button>
         </div>
       </form>
 
